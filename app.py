@@ -1,6 +1,6 @@
 # =====================================================
-# CDEWS-Lite v2.1 – Édition Française (Hardening+)
-# Moniteur de Stabilité - Version Améliorée & Complète
+# CDEWS-IAFS v3.0 – Édition Gemini RÉEL
+# Moniteur de Stabilité Cognitive – Analyse Textuelle Directe
 # Dr. Elhabib Kherroubi – kherroubi.cdews.iafs@gmail.com
 # =====================================================
 
@@ -9,13 +9,23 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.spatial.distance import jensenshannon
+import google.generativeai as genai
+import re
 
 # ==============================
-# Configuration des Seuils
+# Configuration
 # ==============================
 SAFE_THRESHOLD = 0.75
 DRIFT_THRESHOLD = 0.4
-STEPS = 30
+STEPS = 10
+
+# ==============================
+# Clé API Gemini
+# ==============================
+GEMINI_API_KEY = "COLLE_TA_CLE_ICI"  # ← ضع مفتاحك هنا
+
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel("gemini-1.5-flash")
 
 # ==============================
 # Moteur de Métriques
@@ -29,15 +39,74 @@ def normalized_entropy(probs):
 def js_drift(p, q):
     return jensenshannon(p, q) ** 2
 
-def coherence(h_norm, drift):
-    instability = 0.5 * h_norm + 0.5 * drift
+def coherence_dynamic(h_norm, drift, a=0.5, b=0.5):
+    instability = a * h_norm + b * drift
     return np.exp(-instability)
 
-def get_seed_from_text(text):
-    return sum(ord(c) for c in text[:50]) % 10000
+def text_to_probability_vector(text, size=20):
+    """تحويل النص الحقيقي إلى متجه احتمالات"""
+    words = re.findall(r'\w+', text.lower())
+    if not words:
+        return np.ones(size) / size
+    freq = {}
+    for w in words:
+        freq[w] = freq.get(w, 0) + 1
+    top = sorted(freq.items(), key=lambda x: -x[1])[:size]
+    counts = np.array([c for _, c in top], dtype=float)
+    while len(counts) < size:
+        counts = np.append(counts, 0.1)
+    counts = counts[:size]
+    return counts / counts.sum()
+
+def analyze_with_gemini(text):
+    """إرسال النص لـ Gemini وتحليل الاستجابات المتعددة"""
+    C_history, H_history, D_history = [], [], []
+    previous_vector = None
+    responses = []
+
+    prompts = [
+        f"Analyse brièvement ce texte en 1 phrase: {text}",
+        f"Évalue la fiabilité de cette information en 1 phrase: {text}",
+        f"Donne une perspective critique en 1 phrase: {text}",
+        f"Identifie les points clés en 1 phrase: {text}",
+        f"Résume l'essentiel en 1 phrase: {text}",
+        f"Évalue la cohérence logique en 1 phrase: {text}",
+        f"Donne ton avis de confiance en 1 phrase: {text}",
+        f"Identifie les incertitudes en 1 phrase: {text}",
+        f"Évalue la stabilité sémantique en 1 phrase: {text}",
+        f"Conclusion finale en 1 phrase: {text}",
+    ]
+
+    for prompt in prompts:
+        try:
+            response = model.generate_content(prompt)
+            resp_text = response.text
+            responses.append(resp_text)
+
+            vec = text_to_probability_vector(resp_text)
+            h = normalized_entropy(vec)
+
+            if previous_vector is None:
+                drift = 0.0
+            else:
+                drift = js_drift(vec, previous_vector)
+
+            C = coherence_dynamic(h, drift)
+            C_history.append(C)
+            H_history.append(h)
+            D_history.append(drift)
+            previous_vector = vec
+
+        except Exception as e:
+            C_history.append(0.5)
+            H_history.append(0.8)
+            D_history.append(0.1)
+            responses.append(f"Erreur: {str(e)}")
+
+    return C_history, H_history, D_history, responses
 
 # ==============================
-# Interface Utilisateur
+# Interface
 # ==============================
 st.set_page_config(
     page_title="CDEWS-IAFS Monitor",
@@ -45,18 +114,14 @@ st.set_page_config(
     layout="wide"
 )
 
-# En-tête professionnel
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
-    st.title("🛡️ CDEWS-IAFS")
-    st.markdown("### Moniteur de Stabilité Cognitive")
-    st.markdown("Édition Professionnelle v2.1 – Dr. Kherroubi")
+    st.title("🛡️ CDEWS-IAFS v3.0")
+    st.markdown("### Moniteur de Stabilité Cognitive — Analyse Réelle")
+    st.markdown("Édition Gemini – Dr. Kherroubi")
 
 st.divider()
 
-# ==============================
-# سطر Freemium الرسمي
-# ==============================
 st.info(
     "🆓 Version Publique Gratuite — "
     "Version Entreprise disponible pour déploiement institutionnel. "
@@ -65,76 +130,20 @@ st.info(
 
 st.divider()
 
-# ==============================
-# Panneau de Configuration
-# ==============================
-with st.sidebar:
-    st.header("⚙️ Configuration")
-    st.markdown("---")
-
-    steps_config = st.slider("Nombre d'étapes", 10, 100, STEPS)
-    alpha = st.slider("Coefficient α (Entropie)", 0.1, 1.0, 0.5)
-    beta = st.slider("Coefficient β (Dérive)", 0.1, 1.0, 0.5)
-
-    st.markdown("---")
-    st.markdown("*Seuils de Décision*")
-    safe_th = st.number_input("Seuil Sécurisé", 0.0, 1.0, SAFE_THRESHOLD, 0.05)
-    drift_th = st.number_input("Seuil Critique", 0.0, 1.0, DRIFT_THRESHOLD, 0.05)
-
-    st.markdown("---")
-    st.info("CDEWS-IAFS v2.1\nStabilité Cognitive IA")
-
-# ==============================
-# Zone de Saisie Principale
-# ==============================
 text_input = st.text_area(
-    "📝 Saisir le texte pour analyse :",
-    placeholder="Entrez votre texte technique ici...",
+    "📝 Saisir le texte pour analyse réelle :",
+    placeholder="Entrez votre texte ici — Gemini va l'analyser en temps réel...",
     height=120
 )
 
-run = st.button("🚀 Lancer l'Analyse", use_container_width=True, type="primary")
+run = st.button("🚀 Lancer l'Analyse Réelle", use_container_width=True, type="primary")
 
-# ==============================
-# Moteur d'Analyse
-# ==============================
 if run and text_input:
+    with st.spinner("🔬 Analyse Gemini en cours — 10 requêtes réelles..."):
+        C_history, H_history, D_history, responses = analyze_with_gemini(text_input)
 
-    with st.spinner("Analyse en cours..."):
-
-        seed_val = get_seed_from_text(text_input)
-        np.random.seed(seed_val)
-
-        def coherence_dynamic(h_norm, drift, a, b):
-            instability = a * h_norm + b * drift
-            return np.exp(-instability)
-
-        C_history = []
-        H_history = []
-        D_history = []
-        previous_vector = None
-
-        for step in range(steps_config):
-            probs = np.random.dirichlet(np.ones(10))
-            h = normalized_entropy(probs)
-
-            if previous_vector is None:
-                drift = 0.0
-            else:
-                drift = js_drift(probs, previous_vector)
-
-            C = coherence_dynamic(h, drift, alpha, beta)
-
-            previous_vector = probs
-            C_history.append(C)
-            H_history.append(h)
-            D_history.append(drift)
-
-    # ==============================
-    # Tableau de Bord – KPIs
-    # ==============================
+    # KPIs
     st.subheader("📊 Tableau de Bord")
-
     final_C = C_history[-1]
     mean_C = np.mean(C_history)
     min_C = np.min(C_history)
@@ -148,23 +157,17 @@ if run and text_input:
 
     st.divider()
 
-    # ==============================
-    # Statut du Système
-    # ==============================
+    # Statut
     st.subheader("🔎 Statut du Système")
-
-    if final_C >= safe_th:
+    if final_C >= SAFE_THRESHOLD:
         st.success(f"🟢 SÉCURISÉ — Score de Cohérence C(t) = {final_C:.3f}")
-    elif final_C > drift_th:
+    elif final_C > DRIFT_THRESHOLD:
         st.warning(f"🟡 DÉRIVE DÉTECTÉE — Score de Cohérence C(t) = {final_C:.3f}")
     else:
         st.error(f"🔴 CRITIQUE : INSTABILITÉ — Score de Cohérence C(t) = {final_C:.3f}")
 
-    # ==============================
-    # Visualisation – 3 Graphiques
-    # ==============================
+    # Visualisation
     st.subheader("📈 Visualisation")
-
     fig, axes = plt.subplots(1, 3, figsize=(15, 4))
     fig.patch.set_facecolor('#0e1117')
 
@@ -178,65 +181,39 @@ if run and text_input:
             spine.set_edgecolor('#444')
 
     axes[0].plot(C_history, color='#00bfff', linewidth=2, label='C(t)')
-    axes[0].axhline(safe_th, color='#00ff88', linestyle="--", linewidth=1.2, label='Sécurisé')
-    axes[0].axhline(drift_th, color='#ff4444', linestyle="--", linewidth=1.2, label='Critique')
-    axes[0].fill_between(range(steps_config), C_history, alpha=0.15, color='#00bfff')
-    axes[0].set_title("Cohérence C(t)", fontweight='bold')
-    axes[0].set_xlabel("Étape")
-    axes[0].set_ylabel("Score")
-    axes[0].set_ylim(0, 1.05)
-    axes[0].legend(fontsize=8, labelcolor='white', facecolor='#1a1d23')
-    axes[0].grid(True, alpha=0.2, linestyle=':')
+    axes[0].axhline(y=SAFE_THRESHOLD, color='green', linestyle='--', alpha=0.7, label='Sécurisé')
+    axes[0].axhline(y=DRIFT_THRESHOLD, color='red', linestyle='--', alpha=0.7, label='Critique')
+    axes[0].set_title('Cohérence C(t)')
+    axes[0].set_xlabel('Étape')
+    axes[0].set_ylim(0, 1)
+    axes[0].legend(fontsize=7, labelcolor='white')
 
-    axes[1].plot(H_history, color='#ffaa00', linewidth=2, label='H(t)')
-    axes[1].fill_between(range(steps_config), H_history, alpha=0.15, color='#ffaa00')
-    axes[1].set_title("Entropie Normalisée H(t)", fontweight='bold')
-    axes[1].set_xlabel("Étape")
-    axes[1].set_ylabel("Entropie")
-    axes[1].set_ylim(0, 1.05)
-    axes[1].legend(fontsize=8, labelcolor='white', facecolor='#1a1d23')
-    axes[1].grid(True, alpha=0.2, linestyle=':')
+    axes[1].plot(H_history, color='#ffa500', linewidth=2, label='H(t)')
+    axes[1].set_title('Entropie Normalisée H(t)')
+    axes[1].set_xlabel('Étape')
+    axes[1].set_ylim(0, 1)
 
-    axes[2].plot(D_history, color='#ff6b6b', linewidth=2, label='D(t)')
-    axes[2].fill_between(range(steps_config), D_history, alpha=0.15, color='#ff6b6b')
-    axes[2].set_title("Dérive JS D(t)", fontweight='bold')
-    axes[2].set_xlabel("Étape")
-    axes[2].set_ylabel("Dérive")
-    axes[2].legend(fontsize=8, labelcolor='white', facecolor='#1a1d23')
-    axes[2].grid(True, alpha=0.2, linestyle=':')
+    axes[2].plot(D_history, color='#ff4444', linewidth=2, label='D(t)')
+    axes[2].set_title('Dérive JS D(t)')
+    axes[2].set_xlabel('Étape')
 
     plt.tight_layout()
     st.pyplot(fig)
 
-    # ==============================
-    # Tableau de Données Détaillé
-    # ==============================
+    # Réponses Gemini
+    st.subheader("🤖 Réponses Gemini Analysées")
+    for i, resp in enumerate(responses):
+        st.markdown(f"*Étape {i+1}:* {resp}")
+
+    # Données détaillées
     st.subheader("📋 Données Détaillées")
-
     df = pd.DataFrame({
-        "Étape": range(steps_config),
-        "Cohérence_C(t)": [round(c, 4) for c in C_history],
-        "Entropie_H(t)": [round(h, 4) for h in H_history],
-        "Dérive_D(t)": [round(d, 4) for d in D_history],
-        "Statut": [
-            "SÉCURISÉ" if c >= safe_th else ("DÉRIVE" if c > drift_th else "CRITIQUE")
-            for c in C_history
-        ]
+        'Étape': range(len(C_history)),
+        'Cohérence_C(t)': [round(c, 4) for c in C_history],
+        'Entropie_H(t)': [round(h, 4) for h in H_history],
+        'Dérive_D(t)': [round(d, 4) for d in D_history],
     })
+    st.dataframe(df)
 
-    st.dataframe(df, use_container_width=True)
-
-    # ==============================
-    # Exportation CSV
-    # ==============================
     csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="📥 Télécharger le Rapport CSV",
-        data=csv,
-        file_name=f"cdews_iafs_rapport_{seed_val}.csv",
-        mime="text/csv",
-        use_container_width=True
-    )
-
-elif run and not text_input:
-    st.warning("⚠️ Veuillez saisir un texte avant de lancer l'analyse.")
+    st.download_button("📥 Télécharger le Rapport CSV", csv, "cdews_rapport.csv", "text/csv")
