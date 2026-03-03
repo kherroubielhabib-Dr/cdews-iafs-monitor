@@ -14,7 +14,7 @@ import re
 SAFE_THRESHOLD = 0.75
 DRIFT_THRESHOLD = 0.4
 
-GEMINI_API_KEY = "AIzaSyCiwc8B8y4hu7isO774suCwktMUwq0xvQw"
+GEMINI_API_KEY = "AIzaSyCbyR_dJgjfsZRDzpWznt0m4kHl4jZdlNA"
 
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-2.0-flash-lite")
@@ -137,6 +137,7 @@ if run and text_input:
     st.dataframe(df)
     csv = df.to_csv(index=False).encode('utf-8')
     st.download_button("📥 Télécharger CSV", csv, "cdews_rapport.csv", "text/csv")
+
 
 
 
