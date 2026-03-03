@@ -22,7 +22,7 @@ STEPS = 10
 # ==============================
 # Clé API Gemini
 # ==============================
-GEMINI_API_KEY = "COLLE_TA_CLE_ICI"  # ← ضع مفتاحك هنا
+GEMINI_API_KEY =AIzaSyC1rP_aTChAwkyJMowqL3oo_y6rEI4_5_U
 
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-1.5-flash")
@@ -217,3 +217,4 @@ if run and text_input:
 
     csv = df.to_csv(index=False).encode('utf-8')
     st.download_button("📥 Télécharger le Rapport CSV", csv, "cdews_rapport.csv", "text/csv")
+
