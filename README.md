@@ -1,22 +1,24 @@
-[08:34, 11/03/2026] kherroubielhabib: # CDEWS-IAFS
+[09:09, 11/03/2026] kherroubielhabib: [08:34، 11/03/2026] kherroubielhabib: #CDEWS-IAFS
 
-Cognitive Drift Early Warning System — AI Structural Stability Monitor
+نظام الإنذار المبكر بالانحراف المعرفي - جهاز مراقبة الاستقرار الهيكلي بالذكاء الاصطناعي
 
-## 📄 Description
-CDEWS-IAFS is an independent monitoring layer that evaluates the structural stability of AI-generated or human-written text in real time. It runs locally (CPU only), requires no API, and produces deterministic, reproducible results.
+📄 الوصف
+CDEWS-IAFS هي طبقة مراقبة مستقلة تقيّم الاستقرار الهيكلي للنصوص المولدة بواسطة الذكاء الاصطناعي أو المكتوبة يدويًا في الوقت الفعلي. تعمل محليًا (على وحدة المعالجة المركزية فقط)، ولا تتطلب واجهة برمجة تطبيقات، وتنتج نتائج حتمية وقابلة للتكرار.
 
-## 🔗 Live Demo
+🔗 عرض توضيحي مباشر
 https://cdews-iafs-monitor-qyfntm6j72mcwcrydrf9g6.streamlit.app
 
-## 🧠 Core Formula
+🧠 التركيبة الأساسية
 C(t) = exp(-(0.45·H(t) + 0.35·D(t) + 0.20·(1 - SC)))
 
-## 📩 Contact
-Dr. Elhabib Kherroubi — kherroubi.cdews.iafs@gmail.com
-[08:47, 11/03/2026] kherroubielhabib: # 🛡️ CDEWS-IAFS
+📩 تواصل معنا
+د. الحبيب خروبي — kherroubi.cdews.iafs@gmail.com [08:47، 11/03/2026] kherroubielhabib: # 🛡️ نظام الإنذار المبكر بالانحراف المعرفي CDEWS-IAFS — نظام توقع النوايا وتكوينها
+
+لا يقرأ الميزان النية، بل يقر…
+[09:11, 11/03/2026] kherroubielhabib: # 🛡️ CDEWS-IAFS
 *Cognitive Drift Early Warning System — Intent Anticipation & Formation System*
 
-> A balance does not read intention — it reads what is written.
+> "A balance does not read intention — it reads what is written."
 > — Dr. Elhabib Kherroubi
 
 ---
