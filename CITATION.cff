@@ -1,0 +1,40 @@
+cff-version: 1.2.0
+message: "If you use CDEWS-IAFS in your research, please cite it as below."
+type: software
+title: "CDEWS-IAFS: Cognitive Drift Early Warning System â€” Intent Anticipation & Formation System"
+abstract: >
+  CDEWS-IAFS is an independent deterministic monitoring layer that evaluates 
+  the structural stability of AI-generated or human-written text in real time.
+  It computes a unified stability score C(t) using entropy H(t), semantic drift D(t),
+  and structural coherence SC â€” without requiring any API or GPU.
+authors:
+  - family-names: Kherroubi
+    given-names: Elhabib
+    name-particle: Dr.
+    email: kherroubi.cdews.iafs@gmail.com
+    affiliation: "Independent Researcher â€” AI Safety & Cognitive Stability"
+    country: DZ
+version: "3.2"
+date-released: "2026-03-02"
+license: CC-BY-NC-4.0
+repository-code: "https://github.com/kherroubielhabib-Dr/cdews-iafs-monitor"
+url: "https://cdews-iafs-monitor-qyfntm6j72mcwcrydrf9g6.streamlit.app"
+keywords:
+  - AI Safety
+  - Cognitive Drift
+  - Structural Stability
+  - LLM Monitoring
+  - Hallucination Detection
+  - Deterministic Metrics
+  - Natural Language Processing
+  - Arabic NLP
+  - French NLP
+preferred-citation:
+  type: software
+  title: "CDEWS-IAFS: A Deterministic Framework for Measuring Structural Stability in AI-Generated Text"
+  authors:
+    - family-names: Kherroubi
+      given-names: Elhabib
+      name-particle: Dr.
+  year: 2026
+  url: "https://github.com/kherroubielhabib-Dr/cdews-iafs-monitor"
