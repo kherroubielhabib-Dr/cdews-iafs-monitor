@@ -3,4 +3,5 @@ numpy
 pandas
 matplotlib
 scipy
-google-generativeai
+scikit-learn
+sentence-transformers
