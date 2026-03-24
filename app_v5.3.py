@@ -536,4 +536,76 @@ that may lead to incorrect conclusions.
                         mime="text/csv",
                     )
                 else:
-                  
+                    # ✅ FIXED: was missing in v5.3
+                    st.info("At least 2 sentences required for CTL analysis.")
+
+# =====================================================
+# FORMULA REFERENCE
+# =====================================================
+with st.expander("📐 Formula Reference & Scientific Justification"):
+    st.markdown("""
+**Core Stability:**
+```
+C(t) = exp(-(α·H(t) + β·D(t) + γ·(1 - SC)))
+α = 0.45 | β = 0.35 | γ = 0.20
+```
+
+**Hybrid D(t) v5.2:**
+```
+D(t) = 0.5 × Lexical_JSD + 0.5 × Embedding_cosine_distance
+```
+
+**Causal Tension — Standard Mode (CTL v4.3):**
+```
+Base = |Expected − Actual_sim|
+CTL  = Base × Risk(domain)
+```
+
+**Causal Tension — Code Mode (v5.4):**
+```
+CTL  = Embedding_drift × Risk(domain)
+(No connector expectation, no jump penalty)
+```
+
+**Logical Necessity Index (LNI — diagnostic, text mode only):**
+```
+LNI = expected × (1 − drift)
+```
+*LNI is shown in the step table as a diagnostic signal.*
+*It explains WHY tension is high — it does not modify CTL.*
+*Not applicable in Code Mode.*
+
+**Final Score:**
+```
+Final = C(t) × (1 − CTL)
+```
+
+---
+**Connector Strength** *(Penn Discourse Treebank, Prasad et al. 2008)*
+
+| Type | Value | Linguistic Basis |
+|------|-------|-----------------|
+| Strong (therefore, thus...) | 0.85 | Entailment — conclusion MUST follow |
+| Medium (because, since...)  | 0.65 | Causation — conclusion LIKELY follows |
+| Contrast (but, however...)  | 0.50 | Opposition — semantic distance expected |
+| Neutral (no connector)      | 0.40 | Weak expectation only |
+
+---
+**Version Lineage:**
+
+| Version | Key Addition |
+|---------|-------------|
+| v3.2    | H(t) · D(t) · SC · C(t) |
+| v4.1    | CTL — Causal Tension Layer |
+| v4.2    | DRA — Domain Risk Amplification |
+| v4.3    | Deterministic Core |
+| v4.4    | Semantic D(t) + domain-aware H(t) |
+| v5.0    | DCS + LNI architecture |
+| v5.1    | CTL v4.3 backbone restored + LNI as diagnostic |
+| v5.2    | Hybrid D(t): lexical JSD + embedding cosine |
+| v5.3    | Demo Mode decision layer + high-risk domain gate |
+| v5.4    | Code Mode + pandas fix + UI consistency ✅ |
+
+---
+*Domain Risk: General ×1.0 | Finance ×1.5 | Legal ×1.6 | AI Safety ×1.7 | Medical ×1.8*
+    """)
