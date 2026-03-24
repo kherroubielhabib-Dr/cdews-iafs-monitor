@@ -32,9 +32,9 @@ warnings.filterwarnings('ignore')
 SAFE_THRESHOLD = 0.75
 DRIFT_THRESHOLD = 0.45
 
-ALPHA = 0.45   # Entropy weight
-BETA = 0.35    # Drift weight
-GAMMA = 0.20   # Structural Coherence weight
+ALPHA = 0.45
+BETA = 0.35
+GAMMA = 0.20
 
 DOMAIN_RISK = {
     "General": 1.0,
@@ -44,7 +44,6 @@ DOMAIN_RISK = {
     "AI Safety": 1.7,
 }
 
-# Connector strength — calibrated against PDTB (Prasad et al. 2008)
 CONNECTOR_STRENGTH = {
     "strong": 0.85,
     "medium": 0.65,
@@ -54,13 +53,10 @@ CONNECTOR_STRENGTH = {
 
 CAUSAL_CONNECTORS = {
     "strong": [
-        # English
         "therefore", "thus", "hence", "consequently", "as a result",
         "it follows that", "accordingly", "for this reason",
-        # Arabic
         "لذلك", "إذن", "بالتالي", "بناءً على ذلك", "وعليه", "من ثم",
         "نتيجة لذلك", "على هذا الأساس", "يترتب على ذلك",
-        # French
         "donc", "par conséquent", "ainsi", "en conséquence",
     ],
     "medium": [
@@ -81,7 +77,7 @@ CAUSAL_CONNECTORS = {
 
 @st.cache_resource
 def load_model():
-    with st.spinner("🧠 Initializing CDEWS v5.3 Reasoning Engine..."):
+    with st.spinner("Loading model..."):
         return SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
 model = load_model()
@@ -91,12 +87,10 @@ model = load_model()
 # =====================================================
 
 def split_sentences(text: str) -> list:
-    """Split text into sentences using punctuation and newlines."""
     parts = re.split(r'[.!?؟\n]+', text)
     return [p.strip() for p in parts if len(p.strip()) > 10]
 
 def batch_embed(sentences: list) -> list:
-    """Generate embeddings for a list of sentences."""
     vecs = model.encode(sentences, convert_to_numpy=True).astype(np.float32)
     return [vecs[i] for i in range(len(vecs))]
 
@@ -105,10 +99,6 @@ def batch_embed(sentences: list) -> list:
 # =====================================================
 
 def compute_entropy(text: str, is_technical: bool = False) -> float:
-    """
-    H(t) — Normalized Shannon entropy.
-    Domain-aware: technical texts × 0.70 correction.
-    """
     words = re.findall(r'\w+', text.lower())
     if len(set(words)) < 2:
         return 0.0
@@ -124,10 +114,6 @@ def compute_entropy(text: str, is_technical: bool = False) -> float:
     return h * 0.70 if is_technical else h
 
 def lexical_drift(text1: str, text2: str) -> float:
-    """
-    Lexical drift via word-frequency JSD.
-    Captures vocabulary divergence between two texts.
-    """
     from scipy.spatial.distance import jensenshannon
     
     words1 = set(re.findall(r"\w+", text1.lower()))
@@ -145,22 +131,10 @@ def lexical_drift(text1: str, text2: str) -> float:
     return float(np.clip(jensenshannon(p, q) ** 2, 0.0, 1.0))
 
 def semantic_drift_embedding(e1: np.ndarray, e2: np.ndarray) -> float:
-    """
-    Semantic drift via embedding cosine distance.
-    Captures meaning divergence regardless of vocabulary.
-    """
     sim = float(cosine_similarity([e1], [e2])[0][0])
     return float(np.clip((1.0 - sim) / 2.0, 0.0, 1.0))
 
-def compute_semantic_drift(
-    e1: np.ndarray, e2: np.ndarray,
-    text1: str = "", text2: str = ""
-) -> float:
-    """
-    D(t) v5.2+ — Hybrid semantic drift.
-    Combines lexical JSD + embedding cosine distance.
-    D(t) = 0.5 × lexical_JSD + 0.5 × embedding_cosine_distance
-    """
+def compute_semantic_drift(e1: np.ndarray, e2: np.ndarray, text1: str = "", text2: str = "") -> float:
     emb_drift = semantic_drift_embedding(e1, e2)
     if text1 and text2:
         lex_drift = lexical_drift(text1, text2)
@@ -168,7 +142,6 @@ def compute_semantic_drift(
     return emb_drift
 
 def compute_structural_coherence(embeddings: list) -> float:
-    """SC — Mean cosine similarity across consecutive pairs."""
     if len(embeddings) < 2:
         return 1.0
     
@@ -180,7 +153,6 @@ def compute_structural_coherence(embeddings: list) -> float:
     return float(np.mean(sims))
 
 def compute_c_score(h: float, d: float, sc: float) -> float:
-    """C(t) = exp(-(α·H + β·D + γ·(1-SC))). Deterministic."""
     return float(np.exp(-(ALPHA * h + BETA * d + GAMMA * (1.0 - sc))))
 
 # =====================================================
@@ -188,35 +160,17 @@ def compute_c_score(h: float, d: float, sc: float) -> float:
 # =====================================================
 
 def detect_connector(sentence: str):
-    """
-    Detect causal connectors with word boundaries.
-    Enhanced with regex word boundaries to avoid false positives.
-    """
     s = sentence.lower()
     for ctype, words in CAUSAL_CONNECTORS.items():
         for w in words:
-            pattern = r'\b' + re.escape(w) + r'\b'
-            if re.search(pattern, s):
+            if w in s:
                 return CONNECTOR_STRENGTH[ctype], ctype, w
     return CONNECTOR_STRENGTH["neutral"], "neutral", "---"
 
 def compute_lni(expected: float, drift: float) -> float:
-    """
-    LNI — Logical Necessity Index (DIAGNOSTIC ONLY)
-    Measures how necessary a reasoning step was.
-    LNI = expected × (1 − drift)
-    """
     return float(np.clip(expected * (1.0 - drift), 0.0, 1.0))
 
 def compute_lga(expected: float, sim: float, drift: float, domain: str) -> tuple:
-    """
-    LGA v2 — Logic Gap Amplification
-    Detects two types of dangerous reasoning:
-    1. Semantic gap: drift ≥ 0.40 AND expected ≥ 0.80
-    2. Weak support: sim < 0.65 AND expected ≥ 0.80
-    Returns:
-    (lga_factor, is_logic_gap, gap_type)
-    """
     is_logic_gap = False
     gap_type = None
     
@@ -234,17 +188,10 @@ def compute_lga(expected: float, sim: float, drift: float, domain: str) -> tuple
     return 1.0, False, None
 
 # =====================================================
-# CTL ENGINE — v4.3 backbone + LGA v2
+# CTL ENGINE
 # =====================================================
 
 def compute_ctl(sentences: list, embeddings: list, domain: str) -> tuple:
-    """
-    CTL v5.3 — Causal Tension Layer with LGA v2.
-    BACKBONE: v4.3 formula (proven correct):
-    base = |expected − actual_sim|
-    CTL = base × risk(domain)
-    LGA v2: Amplifies CTL when logic gaps are detected.
-    """
     if len(sentences) < 2:
         return 0.0, [], []
     
@@ -264,7 +211,6 @@ def compute_ctl(sentences: list, embeddings: list, domain: str) -> tuple:
             0.0, 1.0
         ))
         
-        # Jump penalty (v4.1+)
         if len(s2) / max(len(s1), 1) > 1.5:
             sim *= 0.75
         
@@ -308,11 +254,10 @@ def compute_ctl(sentences: list, embeddings: list, domain: str) -> tuple:
     return float(np.mean(tensions)) if tensions else 0.0, details, all_drifts
 
 # =====================================================
-# FULL ANALYSIS PIPELINE
+# FULL ANALYSIS
 # =====================================================
 
 def analyze(text: str, domain: str, is_technical: bool = False) -> dict:
-    """Complete analysis pipeline with all metrics."""
     sentences = split_sentences(text)
     if not sentences:
         return {}
@@ -345,12 +290,8 @@ def analyze(text: str, domain: str, is_technical: bool = False) -> dict:
 
 st.set_page_config(page_title="CDEWS-IAFS v5.3", layout="wide")
 
-st.title("🧠 CDEWS-IAFS v5.3 — Reasoning Integrity Engine")
-st.caption(
-    "Dr. Elhabib Kherroubi | "
-    "Deterministic · Model-Agnostic · Sovereign | "
-    "CTL v4.3 + LNI Diagnostic + DRA + Hybrid D(t) + LGA v2"
-)
+st.title("CDEWS-IAFS v5.3 --- Reasoning Integrity Engine")
+st.caption("Dr. Elhabib Kherroubi | Deterministic · Model-Agnostic · Sovereign")
 
 st.divider()
 
@@ -358,24 +299,17 @@ col_left, col_right = st.columns([2, 1])
 
 with col_left:
     text = st.text_area(
-        "📝 Enter text for analysis:",
+        "Enter text for analysis:",
         height=220,
         placeholder="Enter any text in Arabic, French, or English...",
     )
 
 with col_right:
-    domain = st.selectbox("🌍 Domain:", list(DOMAIN_RISK.keys()))
-    is_technical = st.checkbox(
-        "📚 Technical / Expert text",
-        help=(
-            "Enable for scientific papers, medical reports, legal documents. "
-            "Applies 0.70 entropy correction to avoid penalizing "
-            "specialized vocabulary."
-        )
-    )
-    st.info(f"Risk multiplier: **×{DOMAIN_RISK[domain]}**")
+    domain = st.selectbox("Domain:", list(DOMAIN_RISK.keys()))
+    is_technical = st.checkbox("Technical / Expert text")
+    st.info(f"Risk multiplier: x{DOMAIN_RISK[domain]}")
 
-analyze_btn = st.button("🔍 Analyze", use_container_width=True, type="primary")
+analyze_btn = st.button("Analyze", use_container_width=True, type="primary")
 
 st.divider()
 
@@ -383,7 +317,7 @@ if analyze_btn:
     if not text.strip():
         st.warning("Please enter some text to analyze.")
     else:
-        with st.spinner("Computing reasoning integrity..."):
+        with st.spinner("Computing..."):
             result = analyze(text, domain, is_technical)
         
         if not result:
@@ -391,57 +325,35 @@ if analyze_btn:
         else:
             final = result["Final"]
             
-            # =========================
-            # 🧠 DECISION LAYER
-            # =========================
-            st.markdown("## 🧠 Reasoning Decision")
+            st.markdown("## Reasoning Decision")
             
             if domain in ["Medical", "AI Safety"]:
-                st.warning("⚠️ High-risk domain: stricter validation applied")
+                st.warning("High-risk domain: stricter validation applied")
             
             if final >= SAFE_THRESHOLD:
-                st.success("✅ Reasoning is Stable")
-                st.markdown("""
-This output follows a coherent logical structure
-and is safe for assisted use.
-
-✔ No critical reasoning gaps detected
-✔ Logical transitions are consistent
-                """)
+                st.success("Stable Reasoning")
+                st.markdown("Safe for decision support.")
             elif final >= DRIFT_THRESHOLD:
-                st.warning("⚠️ Early Signs of Instability")
-                st.markdown("""
-The reasoning appears mostly valid,
-but contains weak or unclear transitions.
-
-→ Human review is recommended
-                """)
+                st.warning("Drift Detected")
+                st.markdown("Human review recommended.")
             else:
-                st.error("🚫 Hidden Logical Risk Detected")
-                st.markdown("""
-This output contains a reasoning gap
-that may lead to incorrect conclusions.
-
-→ Do NOT rely on this output without verification
-                """)
+                st.error("Logical Instability")
+                st.markdown("Do NOT rely on this output without verification.")
             
             if domain in ["Medical", "AI Safety"] and final < SAFE_THRESHOLD:
-                st.error("🔒 Output Restricted due to high-risk domain")
+                st.error("Output Restricted due to high-risk domain")
             
             st.divider()
             
-            # =========================
-            # 🔍 TECHNICAL DETAILS
-            # =========================
-            with st.expander("🔍 View Technical Details"):
+            with st.expander("View Technical Details"):
                 c1, c2, c3, c4, c5 = st.columns(5)
-                c1.metric("H(t) Entropy", result["H"])
-                c2.metric("D(t) Drift", result["D"])
-                c3.metric("SC Coherence", result["SC"])
-                c4.metric("C(t) Base", result["C_base"])
-                c5.metric("🔥 CTL", result["CTL"])
+                c1.metric("H(t)", result["H"])
+                c2.metric("D(t)", result["D"])
+                c3.metric("SC", result["SC"])
+                c4.metric("C_base", result["C_base"])
+                c5.metric("CTL", result["CTL"])
                 
-                st.markdown(f"### 🚀 Final Score: **{final}**")
+                st.markdown(f"### Final Score: {final}")
                 
                 if result["details"]:
                     df = pd.DataFrame(result["details"])
@@ -468,37 +380,23 @@ that may lead to incorrect conclusions.
                     
                     with col_a:
                         if logic_gaps:
-                            st.error(f"💣 **{len(logic_gaps)} Logic Gap(s) Detected**")
-                            for gap in logic_gaps:
-                                st.caption(f"• Step {gap['Step']}: {gap['Flag']}")
+                            st.error(f"Logic Gaps: {len(logic_gaps)}")
                         else:
-                            st.success("✅ No logic gaps detected")
+                            st.success("No logic gaps detected")
                     
                     with col_b:
                         if contradictions:
-                            st.error(f"🔴 **{len(contradictions)} Contradiction(s)**")
+                            st.error(f"Contradictions: {len(contradictions)}")
                         else:
-                            st.success("✅ No contradictions")
+                            st.success("No contradictions")
                     
                     with col_c:
                         if low_lni:
-                            st.warning(f"⚠️ **{len(low_lni)} step(s) with low LNI (< 0.30)**")
+                            st.warning(f"Low LNI steps: {len(low_lni)}")
                         else:
-                            st.success("✅ Logical necessity maintained")
+                            st.success("Logical necessity OK")
                     
                     csv = df.to_csv(index=False).encode('utf-8')
-                    st.download_button(
-                        label="📥 Export Results (CSV)",
-                        data=csv,
-                        file_name="cdews_analysis_results.csv",
-                        mime="text/csv",
-                    )
+                    st.download_button("Export CSV", csv, "cdews_results.csv", "text/csv")
                 else:
                     st.info("At least 2 sentences required for CTL analysis.")
-    
-    # =====================================================
-    # FORMULA REFERENCE
-    # =====================================================
-    with st.expander("📐 Formula Reference & Scientific Justification"):
-        st.markdown("""
-**Core Stability:**
