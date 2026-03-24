@@ -1,7 +1,7 @@
 # =====================================================
-# CDEWS-IAFS v5.3 — Reasoning Integrity Engine (Enhanced)
+# CDEWS-IAFS v5.3 --- Reasoning Integrity Engine (Enhanced)
 # CTL v4.3 backbone + LNI diagnostic + DRA + Hybrid D(t)
-# Dr. Elhabib Kherroubi — March 2026
+# Dr. Elhabib Kherroubi --- March 2026
 # =====================================================
 #
 # IMPROVEMENTS vs v5.2:
@@ -12,6 +12,7 @@
 # 5. Improved UI with color-coded dataframe and export option
 # 6. Added LGA statistics summary
 # 7. Fixed French connector typo
+# 8. ENHANCED: Added strong Arabic connectors (بناءً على ذلك, عليه, نتيجة لذلك, على هذا الأساس, يترتب على ذلك)
 #
 # =====================================================
 
@@ -31,32 +32,45 @@ warnings.filterwarnings('ignore')
 SAFE_THRESHOLD = 0.75
 DRIFT_THRESHOLD = 0.45
 
-ALPHA = 0.45   # Entropy weight
-BETA = 0.35    # Drift weight
-GAMMA = 0.20   # Structural Coherence weight
+ALPHA = 0.45  # Entropy weight
+BETA = 0.35   # Drift weight
+GAMMA = 0.20  # Structural Coherence weight
 
 DOMAIN_RISK = {
-    "General":   1.0,
-    "Medical":   1.8,
-    "Finance":   1.5,
-    "Legal":     1.6,
+    "General": 1.0,
+    "Medical": 1.8,
+    "Finance": 1.5,
+    "Legal": 1.6,
     "AI Safety": 1.7,
 }
 
-# Connector strength — calibrated against PDTB (Prasad et al. 2008)
+# Connector strength --- calibrated against PDTB (Prasad et al. 2008)
 CONNECTOR_STRENGTH = {
-    "strong":   0.85,
-    "medium":   0.65,
+    "strong": 0.85,
+    "medium": 0.65,
     "contrast": 0.50,
-    "neutral":  0.40,
+    "neutral": 0.40,
 }
+
+# =====================================================
+# ENHANCED: CAUSAL CONNECTORS with additional strong Arabic connectors
+# =====================================================
 
 CAUSAL_CONNECTORS = {
     "strong": [
+        # English
         "therefore", "thus", "hence", "consequently", "as a result",
         "it follows that", "accordingly", "for this reason",
+        # Arabic - Original
         "لذلك", "إذن", "بالتالي", "بناءً على ذلك", "وعليه", "من ثم",
         "نتيجة لذلك", "على هذا الأساس", "يترتب على ذلك",
+        # 🔥 NEW ADDITIONS - Strong Arabic connectors
+        "بناءً على ذلك",     # Based on that
+        "عليه",              # Therefore (upon it)
+        "نتيجة لذلك",        # As a result of that
+        "على هذا الأساس",    # On this basis
+        "يترتب على ذلك",     # It follows from that
+        # French
         "donc", "par conséquent", "ainsi", "en conséquence",
     ],
     "medium": [
@@ -88,7 +102,6 @@ model = load_model()
 
 def split_sentences(text: str) -> list:
     """Split text into sentences using punctuation and newlines."""
-    # Fixed regex: removed malformed RTL artifact
     parts = re.split(r'[.!?؟\n]+', text)
     return [p.strip() for p in parts if len(p.strip()) > 10]
 
@@ -103,18 +116,21 @@ def batch_embed(sentences: list) -> list:
 
 def compute_entropy(text: str, is_technical: bool = False) -> float:
     """
-    H(t) — Normalized Shannon entropy.
+    H(t) --- Normalized Shannon entropy.
     Domain-aware: technical texts × 0.70 correction.
     """
     words = re.findall(r'\w+', text.lower())
     if len(set(words)) < 2:
         return 0.0
+    
     vocab = sorted(set(words))
     freq = np.array([words.count(w) for w in vocab], dtype=float)
     freq += 1e-12
     freq /= freq.sum()
+    
     raw = -np.sum(freq * np.log(freq))
     h = float(np.clip(raw / np.log(len(freq)), 0.0, 1.0))
+    
     return h * 0.70 if is_technical else h
 
 def lexical_drift(text1: str, text2: str) -> float:
@@ -151,7 +167,7 @@ def compute_semantic_drift(
     text1: str = "", text2: str = ""
 ) -> float:
     """
-    D(t) v5.2+ — Hybrid semantic drift.
+    D(t) v5.2+ --- Hybrid semantic drift.
     Combines lexical JSD + embedding cosine distance.
     D(t) = 0.5 × lexical_JSD + 0.5 × embedding_cosine_distance
     """
@@ -162,13 +178,15 @@ def compute_semantic_drift(
     return emb_drift
 
 def compute_structural_coherence(embeddings: list) -> float:
-    """SC — Mean cosine similarity across consecutive pairs."""
+    """SC --- Mean cosine similarity across consecutive pairs."""
     if len(embeddings) < 2:
         return 1.0
+    
     sims = []
     for i in range(len(embeddings) - 1):
         sim = float(cosine_similarity([embeddings[i]], [embeddings[i+1]])[0][0])
         sims.append(float(np.clip((sim + 1.0) / 2.0, 0.0, 1.0)))
+    
     return float(np.mean(sims))
 
 def compute_c_score(h: float, d: float, sc: float) -> float:
@@ -191,11 +209,11 @@ def detect_connector(sentence: str):
             pattern = r'\b' + re.escape(w) + r'\b'
             if re.search(pattern, s):
                 return CONNECTOR_STRENGTH[ctype], ctype, w
-    return CONNECTOR_STRENGTH["neutral"], "neutral", "—"
+    return CONNECTOR_STRENGTH["neutral"], "neutral", "---"
 
 def compute_lni(expected: float, drift: float) -> float:
     """
-    LNI — Logical Necessity Index (DIAGNOSTIC ONLY)
+    LNI --- Logical Necessity Index (DIAGNOSTIC ONLY)
     Measures how necessary a reasoning step was.
     LNI = expected × (1 − drift)
     """
@@ -203,13 +221,12 @@ def compute_lni(expected: float, drift: float) -> float:
 
 def compute_lga(expected: float, sim: float, drift: float, domain: str) -> tuple:
     """
-    LGA v2 — Logic Gap Amplification
+    LGA v2 --- Logic Gap Amplification
     Detects two types of dangerous reasoning:
-        1. Semantic gap: drift ≥ 0.40 AND expected ≥ 0.80
-        2. Weak support: sim < 0.65 AND expected ≥ 0.80
-    
+    1. Semantic gap: drift ≥ 0.40 AND expected ≥ 0.80
+    2. Weak support: sim < 0.65 AND expected ≥ 0.80
     Returns:
-        (lga_factor, is_logic_gap, gap_type)
+    (lga_factor, is_logic_gap, gap_type)
     """
     is_logic_gap = False
     gap_type = None
@@ -232,16 +249,15 @@ def compute_lga(expected: float, sim: float, drift: float, domain: str) -> tuple
     return 1.0, False, None
 
 # =====================================================
-# CTL ENGINE — v4.3 backbone + LGA v2
+# CTL ENGINE --- v4.3 backbone + LGA v2
 # =====================================================
 
 def compute_ctl(sentences: list, embeddings: list, domain: str) -> tuple:
     """
-    CTL v5.3 — Causal Tension Layer with LGA v2.
+    CTL v5.3 --- Causal Tension Layer with LGA v2.
     BACKBONE: v4.3 formula (proven correct):
-        base = |expected − actual_sim|
-        CTL = base × risk(domain)
-    
+    base = |expected − actual_sim|
+    CTL = base × risk(domain)
     LGA v2: Amplifies CTL when logic gaps are detected.
     """
     if len(sentences) < 2:
@@ -270,15 +286,15 @@ def compute_ctl(sentences: list, embeddings: list, domain: str) -> tuple:
         drift = compute_semantic_drift(e1, e2, s1, s2)
         all_drifts.append(drift)
         
-        # ——— CTL v4.3 backbone ———————————————
+        # --------- CTL v4.3 backbone ---------------------------------------------
         base = abs(expected - sim)
         base_ctl = float(np.clip(base * risk, 0.0, 1.0))
         
-        # ——— LGA v2 amplification ————————————
+        # --------- LGA v2 amplification ------------------------------------
         lga_factor, is_gap, gap_type = compute_lga(expected, sim, drift, domain)
         final_ctl = float(np.clip(base_ctl * lga_factor, 0.0, 1.0))
         
-        # ——— Diagnostic indicators ———————————
+        # --------- Diagnostic indicators ---------------------------------
         lni = compute_lni(expected, drift)
         contradiction = (sim < 0.25 and expected > 0.75)
         
@@ -321,6 +337,7 @@ def analyze(text: str, domain: str, is_technical: bool = False) -> dict:
         return {}
     
     embeddings = batch_embed(sentences)
+    
     h = compute_entropy(text, is_technical)
     sc = compute_structural_coherence(embeddings)
     
@@ -349,7 +366,7 @@ def analyze(text: str, domain: str, is_technical: bool = False) -> dict:
 
 st.set_page_config(page_title="CDEWS-IAFS v5.3", layout="wide")
 
-st.title("🧠 CDEWS-IAFS v5.3 — Reasoning Integrity Engine")
+st.title("🧠 CDEWS-IAFS v5.3 --- Reasoning Integrity Engine")
 st.caption(
     "Dr. Elhabib Kherroubi | "
     "Deterministic · Model-Agnostic · Sovereign | "
@@ -377,7 +394,7 @@ with col_right:
             "specialized vocabulary."
         )
     )
-    st.info(f"Risk multiplier: *×{DOMAIN_RISK[domain]}*")
+    st.info(f"Risk multiplier: **×{DOMAIN_RISK[domain]}**")
 
 analyze_btn = st.button("🔍 Analyze", use_container_width=True, type="primary")
 
@@ -410,20 +427,20 @@ if analyze_btn:
             
             # Final verdict
             final = result["Final"]
-            st.subheader(f"🚀 Final Score v5.3: *{final}*")
+            st.subheader(f"🚀 Final Score v5.3: **{final}**")
             
             if final >= SAFE_THRESHOLD:
-                st.success("✅ Stable Reasoning — Safe for decision support")
+                st.success("✅ Stable Reasoning --- Safe for decision support")
             elif final >= DRIFT_THRESHOLD:
-                st.warning("⚠️ Drift Detected — Human review recommended")
+                st.warning("⚠️ Drift Detected --- Human review recommended")
             else:
-                st.error("🔴 Logical Instability — Do not rely without review")
+                st.error("🔴 Logical Instability --- Do not rely without review")
             
             st.divider()
             
             # CTL detail table
             if result["details"]:
-                st.subheader("🔍 Causal Tension — Step by Step")
+                st.subheader("🔍 Causal Tension --- Step by Step")
                 df = pd.DataFrame(result["details"])
                 
                 # Color-code the dataframe for better readability
@@ -447,9 +464,10 @@ if analyze_btn:
                 low_lni = [d for d in result["details"] if d.get("LNI", 1.0) < 0.3]
                 
                 col_a, col_b, col_c = st.columns(3)
+                
                 with col_a:
                     if logic_gaps:
-                        st.error(f"💣 *{len(logic_gaps)} Logic Gap(s) Detected*")
+                        st.error(f"💣 **{len(logic_gaps)} Logic Gap(s) Detected**")
                         for gap in logic_gaps:
                             st.caption(f"• Step {gap['Step']}: {gap['Flag']}")
                     else:
@@ -457,11 +475,11 @@ if analyze_btn:
                 
                 with col_b:
                     if contradictions:
-                        st.error(f"🔴 *{len(contradictions)} Contradiction(s)*")
+                        st.error(f"🔴 **{len(contradictions)} Contradiction(s)**")
                 
                 with col_c:
                     if low_lni:
-                        st.warning(f"⚠️ *{len(low_lni)} step(s) with low LNI (< 0.30)*")
+                        st.warning(f"⚠️ **{len(low_lni)} step(s) with low LNI (< 0.30)**")
                     else:
                         st.success("✅ Logical necessity maintained")
                 
@@ -479,67 +497,4 @@ if analyze_btn:
     # Formula Reference
     with st.expander("📐 Formula Reference & Scientific Justification"):
         st.markdown("""
-        *Core Stability:*
-        
-        C(t) = exp(-(α·H(t) + β·D(t) + γ·(1 - SC)))
-        α = 0.45 | β = 0.35 | γ = 0.20
-        
-        
-        *Hybrid D(t) v5.2:*
-        
-        D(t) = 0.5 × Lexical_JSD + 0.5 × Embedding_cosine_distance
-        
-        
-        *Causal Tension (CTL v4.3 backbone):*
-        
-        Base = |Expected − Actual_sim|
-        CTL = Base × Risk(domain) × LGA_factor
-        
-        
-        *Logic Gap Amplification v2 (LGA v2):*
-        | Gap Type | Condition | Amplification |
-        |----------|-----------|---------------|
-        | Semantic Gap | drift ≥ 0.40 AND expected ≥ 0.80 | ×1.25–1.5 |
-        | Weak Support | sim < 0.65 AND expected ≥ 0.80 | ×1.25–1.5 |
-        
-        *Logical Necessity Index (LNI — diagnostic):*
-        
-        LNI = expected × (1 − drift)
-        
-        
-        *Final Score:*
-        
-        Final = C(t) × (1 − CTL)
-        
-        
-        ---
-        
-        *Connector Strength* (Penn Discourse Treebank, Prasad et al. 2008)
-        
-        | Type | Value | Linguistic Basis |
-        |------|-------|------------------|
-        | Strong (therefore, thus...) | 0.85 | Entailment — conclusion MUST follow |
-        | Medium (because, since...) | 0.65 | Causation — conclusion LIKELY follows |
-        | Contrast (but, however...) | 0.50 | Opposition — semantic distance expected |
-        | Neutral (no connector) | 0.40 | Weak expectation only |
-        
-        ---
-        
-        *Version Lineage:*
-        
-        | Version | Key Addition |
-        |---------|--------------|
-        | v3.2 | H(t) · D(t) · SC · C(t) |
-        | v4.1 | CTL — Causal Tension Layer |
-        | v4.2 | DRA — Domain Risk Amplification |
-        | v4.3 | Deterministic Core |
-        | v4.4 | Semantic D(t) + domain-aware H(t) |
-        | v5.0 | DCS + LNI architecture |
-        | v5.1 | CTL v4.3 backbone restored + LNI as diagnostic |
-        | v5.2 | Hybrid D(t): lexical JSD + embedding cosine |
-        | v5.3 | LGA v2 + optimizations + enhanced UI |
-        
-        ---
-        
-        Domain Risk: General ×1.0 | Finance ×1.5 | Legal ×1.6 | AI Safety ×1.7 | Medical ×1.8
-        """)
+**Core Stability:**
