@@ -1,7 +1,7 @@
 streamlit
 numpy
 pandas
-matplotlib
 scipy
 scikit-learn
 sentence-transformers
+reportlab
