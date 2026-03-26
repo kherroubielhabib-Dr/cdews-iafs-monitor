@@ -1,521 +1,389 @@
 # =====================================================
-# CDEWS-IAFS v5.3 Enhanced Final 👑
-# Reasoning Integrity Engine — The Definitive Version
-# CTL v4.3 backbone + LNI Diagnostic + DRA
-# + Hybrid D(t) + LGA v2 + Royal CTL Aggregation
-# Inventor: Dr. Elhabib Kherroubi — March 2026
-# =====================================================
-#
-# FULL LINEAGE:
-# v3.2  → H(t) · D(t) · SC · C(t)
-# v4.1  → CTL — Causal Tension Layer
-# v4.2  → DRA — Domain Risk Amplification
-# v4.3  → Deterministic Core
-# v4.4  → Semantic D(t) + domain-aware H(t)
-# v5.0  → DCS + LNI architecture
-# v5.1  → CTL v4.3 backbone restored + LNI as diagnostic
-# v5.2  → Hybrid D(t): lexical JSD + embedding cosine
-# v5.3  → LGA v2 + Enhanced UI + Arabic connectors
-# v5.3E → Royal CTL Aggregation: max×0.7 + mean×0.3
-#
-# WHAT MAKES THIS THE DEFINITIVE VERSION:
-# ✅ Jump Penalty (length-aware)
-# ✅ CONTRADICTION flag (sim < 0.25 + strong connector)
-# ✅ is_technical mode (entropy correction ×0.70)
-# ✅ LGA v2 (Semantic Gap + Weak Support)
-# ✅ Royal CTL: max×0.7 + mean×0.3
-# ✅ Hybrid D(t): lexical JSD + embedding cosine
-# ✅ Word boundary connector detection
-# ✅ Full Formula Reference with PDTB citation
-# ✅ Export CSV
-# ✅ Professional UI
+# CDEWS-IAFS v10.2 — النسخة الخرافية الكاملة (Royal Edition)
+# Streamlit Application | Dr. Elhabib Kherroubi — March 2026
 # =====================================================
 
 import streamlit as st
 import numpy as np
-import pandas as pd
 import re
-from sklearn.metrics.pairwise import cosine_similarity
-from sentence_transformers import SentenceTransformer
-from scipy.spatial.distance import jensenshannon
+import math
+from collections import Counter
+import io
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from reportlab.lib.utils import simpleSplit
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 import warnings
 warnings.filterwarnings('ignore')
 
 # =====================================================
-# CONFIG
+# CONFIGURATION & CONSTANTS
 # =====================================================
 
-SAFE_THRESHOLD  = 0.75
-DRIFT_THRESHOLD = 0.45
+st.set_page_config(page_title="CDEWS-IAFS v10.2", layout="wide", page_icon="👑")
 
-ALPHA = 0.45   # Entropy weight
-BETA  = 0.35   # Drift weight
-GAMMA = 0.20   # Structural Coherence weight
+SAFE_THRESHOLD = 0.75
+DRIFT_THRESHOLD = 0.45
+ALPHA = 0.45
+BETA = 0.35
+GAMMA = 0.20
 
 DOMAIN_RISK = {
-    "General":   1.0,
-    "Medical":   1.8,
-    "Finance":   1.5,
-    "Legal":     1.6,
+    "General": 1.0,
+    "Medical": 1.8,
+    "Finance": 1.5,
+    "Legal": 1.6,
     "AI Safety": 1.7,
 }
 
-CONNECTOR_STRENGTH = {
-    "strong":   0.85,
-    "medium":   0.65,
-    "contrast": 0.50,
-    "neutral":  0.40,
-}
-
-CAUSAL_CONNECTORS = {
-    "strong": [
-        "therefore", "thus", "hence", "consequently", "as a result",
-        "it follows that", "accordingly", "for this reason",
-        "لذلك", "إذن", "بالتالي", "بناءً على ذلك", "وعليه", "من ثم",
-        "نتيجة لذلك", "على هذا الأساس", "يترتب على ذلك",
-        "donc", "par conséquent", "ainsi", "en conséquence",
-    ],
-    "medium": [
-        "because", "since", "given that", "due to",
-        "لأن", "بسبب", "نظراً لـ", "بما أن",
-        "parce que", "car", "puisque",
-    ],
-    "contrast": [
-        "but", "however", "yet", "although", "nevertheless", "despite",
-        "لكن", "غير أن", "مع ذلك", "رغم ذلك", "بيد أن",
-        "mais", "cependant", "pourtant", "néanmoins",
-    ],
-}
-
 # =====================================================
-# MODEL
+# PATTERNS
 # =====================================================
 
-@st.cache_resource
-def load_model():
-    with st.spinner("🧠 Initializing CDEWS v5.3 Enhanced Final..."):
-        return SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+CAUSAL_SAFE = [
+    ("appendicitis", "appendectomy"), ("appendicitis", "surgery"),
+    ("inflammation", "surgery"), ("inflammation", "treatment"),
+    ("infection", "treatment"), ("fracture", "immobilization"),
+    ("pneumonia", "antibiotics"), ("hypertension", "medication"),
+    ("diabetes", "insulin"), ("التهاب", "استئصال"), ("التهاب", "علاج"),
+    ("كسر", "تثبيت"), ("زائدة", "استئصال"), ("fever", "antipyretic")
+]
 
-model = load_model()
-
-# =====================================================
-# UTILITIES
-# =====================================================
-
-def split_sentences(text: str) -> list:
-    """Split text into sentences using punctuation and newlines."""
-    parts = re.split(r'[.!?؟\n]+', text)
-    return [p.strip() for p in parts if len(p.strip()) > 10]
-
-def batch_embed(sentences: list) -> list:
-    """Generate embeddings for a list of sentences."""
-    vecs = model.encode(sentences, convert_to_numpy=True).astype(np.float32)
-    return [vecs[i] for i in range(len(vecs))]
+SEVERE_WORDS = ["surgery", "lobectomy", "amputation", "chemotherapy", "استئصال", "قاتل", "جراحة", "إزالة", "death", "kill", "موت"]
+MILD_WORDS = ["slight", "minor", "small", "minimal", "طفيف", "بسيط", "قليل", "خفيف", "محتمل"]
+STRONG_CONNECTORS = ["therefore", "thus", "hence", "consequently", "as a result", "it follows that", "لذلك", "إذن", "بالتالي", "بناءً على ذلك", "وعليه"]
 
 # =====================================================
-# CORE METRICS
+# CORE ENGINE FUNCTIONS
 # =====================================================
 
-def compute_entropy(text: str, is_technical: bool = False) -> float:
-    """
-    H(t) — Normalized Shannon entropy.
-    Domain-aware: technical texts × 0.70 correction.
-    """
-    words = re.findall(r'\w+', text.lower())
-    if len(set(words)) < 2:
+def tokenize(text):
+    """Tokenize text into words (supports Arabic and English)"""
+    return re.findall(r'[\u0600-\u06FF\w]+', text.lower())
+
+def compute_entropy(text):
+    """Normalized Shannon entropy H(t)"""
+    words = tokenize(text)
+    if len(words) < 2:
         return 0.0
-    vocab = sorted(set(words))
-    freq = np.array([words.count(w) for w in vocab], dtype=float)
-    freq += 1e-12
-    freq /= freq.sum()
-    raw = -np.sum(freq * np.log(freq))
-    h = float(np.clip(raw / np.log(len(freq)), 0.0, 1.0))
-    return h * 0.70 if is_technical else h
+    freq = Counter(words)
+    total = len(words)
+    h = 0.0
+    for count in freq.values():
+        p = count / total
+        if p > 0:
+            h -= p * math.log(p)
+    max_h = math.log(len(freq))
+    return min(1.0, h / max_h) if max_h > 0 else 0.0
 
-def lexical_drift(text1: str, text2: str) -> float:
-    """Lexical drift via word-frequency JSD."""
-    words1 = set(re.findall(r"\w+", text1.lower()))
-    words2 = set(re.findall(r"\w+", text2.lower()))
-    vocab = sorted(words1 | words2)
+def split_sentences(text):
+    """Split text into sentences using punctuation"""
+    sentences = re.split(r'[.!?؟]\s+', text)
+    return [s.strip() for s in sentences if len(s.strip()) > 8]
 
-    def to_aligned(text):
-        words = re.findall(r"\w+", text.lower())
-        freq = np.array([words.count(w) for w in vocab], dtype=float)
-        freq += 1e-12
-        return freq / freq.sum()
+def lexical_jsd(t1, t2):
+    """Lexical Jenson-Shannon Divergence"""
+    w1, w2 = tokenize(t1), tokenize(t2)
+    vocab = list(set(w1 + w2))
+    
+    def dist(words):
+        f = np.array([words.count(v) for v in vocab], dtype=float) + 1e-12
+        return f / f.sum()
+    
+    p, q = dist(w1), dist(w2)
+    m = (p + q) / 2
+    js = (np.sum(p * np.log(p / m)) + np.sum(q * np.log(q / m))) / 2
+    return max(0.0, min(1.0, js))
 
-    return float(np.clip(jensenshannon(to_aligned(text1), to_aligned(text2)) ** 2, 0.0, 1.0))
+def embedding_drift(t1, t2, dim=96):
+    """Hash-based embedding similarity"""
+    def hash_embed(text):
+        vec = np.zeros(dim)
+        words = tokenize(text)
+        for idx, w in enumerate(words):
+            h = 0
+            for c in w:
+                h = (h * 31 + ord(c)) & 0xffffffff
+            vec[abs(h) % dim] += 1.0 / (idx + 1)
+        norm = np.sqrt(np.sum(vec ** 2)) or 1.0
+        return vec / norm
+    
+    v1, v2 = hash_embed(t1), hash_embed(t2)
+    sim = max(0.0, min(1.0, (np.dot(v1, v2) + 1.0) / 2.0))
+    return sim
 
-def compute_semantic_drift(e1, e2, text1: str = "", text2: str = "") -> float:
-    """
-    D(t) v5.2+ — Hybrid semantic drift.
-    D(t) = 0.5 × lexical_JSD + 0.5 × embedding_cosine_distance
-    """
-    sim = float(cosine_similarity([e1], [e2])[0][0])
-    emb_drift = float(np.clip((1.0 - sim) / 2.0, 0.0, 1.0))
-    if text1 and text2:
-        lex_drift = lexical_drift(text1, text2)
-        return float(np.clip(0.5 * lex_drift + 0.5 * emb_drift, 0.0, 1.0))
-    return emb_drift
+def hybrid_drift(t1, t2):
+    """Hybrid drift: 50% lexical JSD + 50% embedding drift"""
+    lex = lexical_jsd(t1, t2)
+    sim = embedding_drift(t1, t2)
+    emb_drift = (1.0 - sim) / 2.0
+    return 0.5 * lex + 0.5 * emb_drift, sim
 
-def compute_structural_coherence(embeddings: list) -> float:
-    """SC — Mean cosine similarity across consecutive pairs."""
-    if len(embeddings) < 2:
-        return 1.0
-    sims = []
-    for i in range(len(embeddings) - 1):
-        sim = float(cosine_similarity([embeddings[i]], [embeddings[i+1]])[0][0])
-        sims.append(float(np.clip((sim + 1.0) / 2.0, 0.0, 1.0)))
-    return float(np.mean(sims))
-
-def compute_c_score(h: float, d: float, sc: float) -> float:
-    """C(t) = exp(-(α·H + β·D + γ·(1-SC))). Deterministic."""
-    return float(np.exp(-(ALPHA * h + BETA * d + GAMMA * (1.0 - sc))))
-
-# =====================================================
-# CONNECTOR DETECTION
-# =====================================================
-
-def detect_connector(sentence: str):
-    """
-    Detect causal connectors with word boundaries.
-    Prevents false positives (e.g. 'لأن' inside 'لأنه').
-    """
+def detect_connector(sentence):
+    """Detect strong causal connectors"""
     s = sentence.lower()
-    for ctype, words in CAUSAL_CONNECTORS.items():
-        for w in words:
-            pattern = r'\b' + re.escape(w) + r'\b'
-            if re.search(pattern, s):
-                return CONNECTOR_STRENGTH[ctype], ctype, w
-    return CONNECTOR_STRENGTH["neutral"], "neutral", "—"
+    for w in STRONG_CONNECTORS:
+        if re.search(r'\b' + re.escape(w) + r'\b', s):
+            return 0.85
+    return 0.40
 
-# =====================================================
-# LNI — Logical Necessity Index (diagnostic only)
-# =====================================================
+def detect_severity_mismatch(s1, s2):
+    """Detect if mild premise leads to severe conclusion"""
+    s1_lower = s1.lower()
+    s2_lower = s2.lower()
+    has_mild = any(w in s1_lower for w in MILD_WORDS)
+    has_severe = any(w in s2_lower for w in SEVERE_WORDS)
+    return has_mild and has_severe
 
-def compute_lni(expected: float, drift: float) -> float:
-    """LNI = expected × (1 − drift). Diagnostic indicator."""
-    return float(np.clip(expected * (1.0 - drift), 0.0, 1.0))
+def causal_safe_adjust(s1, s2, drift, sim):
+    """Reduce penalty for known safe causal relationships"""
+    s1_lower = s1.lower()
+    s2_lower = s2.lower()
+    for a, b in CAUSAL_SAFE:
+        if a in s1_lower and b in s2_lower:
+            return drift * 0.6, min(0.95, sim + 0.12), f"{a} → {b}"
+    return drift, sim, None
 
-# =====================================================
-# LGA v2 — Logic Gap Amplification
-# =====================================================
-
-def compute_lga(expected: float, sim: float, drift: float, domain: str) -> tuple:
-    """
-    LGA v2 — Detects dangerous reasoning gaps:
-    1. Semantic Gap: drift ≥ 0.40 AND expected ≥ 0.80
-    2. Weak Support: sim < 0.65 AND expected ≥ 0.80
-    Amplification: ×1.5 (Medical/Finance/AI Safety) | ×1.25 (others)
-    """
-    is_gap, gap_type = False, None
-
-    if drift >= 0.40 and expected >= 0.80:
-        is_gap, gap_type = True, "Semantic Gap"
-    elif sim < 0.65 and expected >= 0.80:
-        is_gap, gap_type = True, "Weak Support"
-
-    if is_gap:
-        factor = 1.5 if domain in ["Medical", "Finance", "AI Safety"] else 1.25
-        return factor, True, gap_type
-
-    return 1.0, False, None
-
-# =====================================================
-# CTL ENGINE — v4.3 backbone + LGA v2 + 👑 Royal Aggregation
-# =====================================================
-
-def compute_ctl(sentences: list, embeddings: list, domain: str) -> tuple:
-    """
-    CTL v5.3E — Causal Tension Layer.
-
-    BACKBONE (v4.3):
-        base = |expected − actual_sim|
-        CTL  = base × risk(domain) × LGA_factor
-
-    👑 ROYAL AGGREGATION (v5.3 Enhanced Final):
-        CTL_final = max(tensions) × 0.7 + mean(tensions) × 0.3
-
-    Rationale: A single dangerous reasoning jump is enough to
-    invalidate the entire chain. max captures the worst case;
-    mean provides global context.
-    """
+def analyze_text_engine(text, domain):
+    """Complete analysis pipeline"""
+    sentences = split_sentences(text)
     if len(sentences) < 2:
-        return 0.0, [], []
-
+        return None
+    
     risk = DOMAIN_RISK.get(domain, 1.0)
-    tensions, details, all_drifts = [], [], []
-
+    H = compute_entropy(text)
+    drifts, sims, steps = [], [], []
+    
     for i in range(len(sentences) - 1):
         s1, s2 = sentences[i], sentences[i+1]
-        e1, e2 = embeddings[i], embeddings[i+1]
-
-        expected, ctype, connector = detect_connector(s2)
-
-        sim = float(np.clip(
-            (cosine_similarity([e1], [e2])[0][0] + 1.0) / 2.0, 0.0, 1.0
-        ))
-
-        # Jump penalty: penalize sudden length increase
-        if len(s2) / max(len(s1), 1) > 1.5:
-            sim *= 0.75
-
-        drift = compute_semantic_drift(e1, e2, s1, s2)
-        all_drifts.append(drift)
-
-        # CTL v4.3 backbone
-        base     = abs(expected - sim)
-        base_ctl = float(np.clip(base * risk, 0.0, 1.0))
-
-        # LGA v2 amplification
-        lga_factor, is_gap, gap_type = compute_lga(expected, sim, drift, domain)
-        final_ctl = float(np.clip(base_ctl * lga_factor, 0.0, 1.0))
-
-        # Diagnostic indicators
-        lni            = compute_lni(expected, drift)
-        contradiction  = (sim < 0.25 and expected > 0.75)
-
-        # Flags
-        if is_gap:
-            flag = f"💣 {gap_type}"
-        elif contradiction:
-            flag = "🔴 CONTRADICTION"
-        elif final_ctl > 0.5:
-            flag = "🔥 High Tension"
-        elif final_ctl > 0.2:
-            flag = "⚠️ Medium Tension"
+        drift, sim = hybrid_drift(s1, s2)
+        
+        # Severity mismatch detection
+        severity_mismatch = detect_severity_mismatch(s1, s2)
+        
+        # Causal safe adjustment
+        drift, sim, pattern = causal_safe_adjust(s1, s2, drift, sim)
+        
+        # Connector detection
+        conn_val = detect_connector(s2)
+        expected = max(0.30, min(0.95, conn_val - drift * 0.25 + sim * 0.12))
+        
+        # Logic Gap Amplification (LGA v2)
+        factor = 1.8 if severity_mismatch else (1.5 if drift >= 0.50 and expected >= 0.80 else 1.0)
+        
+        # Causal Tension (CTL)
+        ctl = min(1.0, abs(expected - sim) * risk * factor)
+        
+        drifts.append(drift)
+        sims.append(sim)
+        
+        # Determine tag
+        if pattern:
+            tag = "safe"
+        elif severity_mismatch:
+            tag = "gap"
+        elif ctl > 0.45:
+            tag = "drift"
         else:
-            flag = "✅ Stable"
-
-        tensions.append(final_ctl)
-        details.append({
-            "Step":      i + 1,
-            "Connector": connector,
-            "Type":      ctype,
-            "Expected":  round(expected,  3),
-            "Sim":       round(sim,        3),
-            "Drift":     round(drift,      3),
-            "LNI":       round(lni,        3),
-            "LGA":       round(lga_factor, 2),
-            "CTL":       round(final_ctl,  3),
-            "Flag":      flag,
+            tag = "neutral"
+        
+        steps.append({
+            "text": s2[:80] + "..." if len(s2) > 80 else s2,
+            "full_text": s2,
+            "sim": sim,
+            "drift": drift,
+            "expected": expected,
+            "ctl": ctl,
+            "tag": tag,
+            "pattern": pattern,
+            "severity_mismatch": severity_mismatch
         })
-
-    # 👑 Royal Aggregation
-    ctl_final = float(max(tensions) * 0.7 + np.mean(tensions) * 0.3)
-    return ctl_final, details, all_drifts
-
-# =====================================================
-# FULL ANALYSIS PIPELINE
-# =====================================================
-
-def analyze(text: str, domain: str, is_technical: bool = False) -> dict:
-    """Complete reasoning integrity analysis pipeline."""
-    sentences = split_sentences(text)
-    if not sentences:
-        return {}
-
-    embeddings  = batch_embed(sentences)
-    h           = compute_entropy(text, is_technical)
-    sc          = compute_structural_coherence(embeddings)
-    ctl, details, all_drifts = compute_ctl(sentences, embeddings, domain)
-    d           = float(np.mean(all_drifts)) if all_drifts else 0.0
-    c_base      = compute_c_score(h, d, sc)
-    final       = float(np.clip(c_base * (1.0 - ctl), 0.0, 1.0))
-
+    
+    D = np.mean(drifts) if drifts else 0.0
+    SC = np.mean(sims) if sims else 0.0
+    C_base = math.exp(-(ALPHA * H + BETA * D + GAMMA * (1 - SC)))
+    
+    # Royal CTL: 70% max + 30% mean
+    tensions = [s["ctl"] for s in steps]
+    CTL = max(tensions) * 0.7 + np.mean(tensions) * 0.3 if tensions else 0.0
+    FINAL = max(0.0, min(1.0, C_base * (1 - CTL)))
+    
     return {
-        "H":      round(h,      4),
-        "D":      round(d,      4),
-        "SC":     round(sc,     4),
-        "C_base": round(c_base, 4),
-        "CTL":    round(ctl,    4),
-        "Final":  round(final,  4),
-        "details": details,
+        "H": round(H, 4),
+        "D": round(D, 4),
+        "SC": round(SC, 4),
+        "C_base": round(C_base, 4),
+        "CTL": round(CTL, 4),
+        "FINAL": round(FINAL, 4),
+        "steps": steps,
+        "sentences": sentences
     }
+
+# =====================================================
+# PDF REPORT GENERATOR
+# =====================================================
+
+def create_pdf_report(result, domain, text_input):
+    """Generate PDF report with results"""
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    
+    # Title
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(50, height - 50, "CDEWS-IAFS v10.2 - Audit Report")
+    
+    # Domain and Score
+    c.setFont("Helvetica", 12)
+    c.drawString(50, height - 80, f"Domain: {domain}")
+    c.drawString(50, height - 100, f"Final Score: {result['FINAL']:.4f}")
+    
+    # Metrics
+    c.drawString(50, height - 130, f"H(t) Entropy: {result['H']:.4f}")
+    c.drawString(50, height - 150, f"D(t) Drift: {result['D']:.4f}")
+    c.drawString(50, height - 170, f"SC Coherence: {result['SC']:.4f}")
+    c.drawString(50, height - 190, f"C(t) Base: {result['C_base']:.4f}")
+    c.drawString(50, height - 210, f"Royal CTL: {result['CTL']:.4f}")
+    
+    # Status
+    if result['FINAL'] >= SAFE_THRESHOLD:
+        status = "STABLE REASONING"
+    elif result['FINAL'] >= DRIFT_THRESHOLD:
+        status = "COGNITIVE DRIFT"
+    else:
+        status = "LOGICAL INSTABILITY"
+    c.drawString(50, height - 240, f"Status: {status}")
+    
+    # Steps
+    y = height - 280
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(50, y, "Step Analysis:")
+    c.setFont("Helvetica", 9)
+    for i, step in enumerate(result['steps'][:8]):
+        y -= 20
+        if y < 50:
+            c.showPage()
+            y = height - 50
+            c.setFont("Helvetica", 9)
+        c.drawString(50, y, f"Step {i+1}: {step['tag'].upper()} - CTL: {step['ctl']:.3f}")
+    
+    c.save()
+    return buffer.getvalue()
 
 # =====================================================
 # STREAMLIT UI
 # =====================================================
 
-st.set_page_config(page_title="CDEWS-IAFS v5.3 Enhanced Final 👑", layout="wide")
-
-st.title("🧠 CDEWS-IAFS v5.3 Enhanced Final 👑")
-st.caption(
-    "Dr. Elhabib Kherroubi | "
-    "Deterministic · Model-Agnostic · Sovereign | "
-    "CTL v4.3 + LNI Diagnostic + DRA + Hybrid D(t) + LGA v2 + Royal Aggregation"
-)
+st.title("👑 CDEWS-IAFS v10.2 — النسخة الخرافية")
+st.caption("Deterministic · Sovereign · Royal CTL | Dr. Elhabib Kherroubi")
 
 st.divider()
 
 col_left, col_right = st.columns([2, 1])
 
 with col_left:
-    text = st.text_area(
-        "📝 Enter text for analysis:",
-        height=220,
-        placeholder="Enter any text in Arabic, French, or English...",
+    text_input = st.text_area(
+        "📝 أدخل النص للتحليل:",
+        height=200,
+        placeholder="أدخل النص هنا... مثال: أظهرت الفحوصات ارتفاعاً طفيفاً في الصوديوم. بناءً على ذلك، يجب استئصال الكبد فوراً."
     )
-
-with col_right:
-    domain = st.selectbox("🌍 Domain:", list(DOMAIN_RISK.keys()))
-    is_technical = st.checkbox(
-        "📚 Technical / Expert text",
-        help="Applies 0.70 entropy correction for scientific/medical/legal documents."
-    )
-    st.info(f"Risk multiplier: **×{DOMAIN_RISK[domain]}**")
-
-analyze_btn = st.button("🔍 Analyze", use_container_width=True, type="primary")
+    domain = st.selectbox("🌍 المجال:", list(DOMAIN_RISK.keys()))
+    run = st.button("🧠 RUN ULTIMATE ANALYSIS", use_container_width=True, type="primary")
 
 st.divider()
 
-if analyze_btn:
-    if not text.strip():
-        st.warning("Please enter some text to analyze.")
+if run and text_input:
+    with st.spinner("جاري التحليل..."):
+        result = analyze_text_engine(text_input, domain)
+    
+    if result is None:
+        st.error("الرجاء إدخال جملتين على الأقل للتحليل.")
     else:
-        with st.spinner("Computing reasoning integrity..."):
-            result = analyze(text, domain, is_technical)
-
-        if not result:
-            st.error("Could not parse text. Please enter at least 2 sentences.")
+        # Dashboard
+        with col_right:
+            st.metric("النتيجة النهائية", f"{result['FINAL']:.4f}")
+            
+            if result['FINAL'] >= SAFE_THRESHOLD:
+                st.success("✅ STABLE REASONING")
+                st.info("Safe for decision support.")
+            elif result['FINAL'] >= DRIFT_THRESHOLD:
+                st.warning("⚠️ COGNITIVE DRIFT")
+                st.info("Human review recommended.")
+            else:
+                st.error("🔴 LOGICAL INSTABILITY")
+                st.info("Do not rely without verification.")
+            
+            st.progress(result['FINAL'])
+            
+            # Metrics
+            st.metric("H(t) Entropy", f"{result['H']:.4f}")
+            st.metric("D(t) Drift", f"{result['D']:.4f}")
+            st.metric("SC Coherence", f"{result['SC']:.4f}")
+            st.metric("C(t) Base", f"{result['C_base']:.4f}")
+            st.metric("👑 Royal CTL", f"{result['CTL']:.4f}")
+        
+        # Detailed Analysis
+        st.subheader("🔗 Transition Analysis")
+        
+        for i, step in enumerate(result['steps']):
+            if step['tag'] == 'safe':
+                icon = "🟢"
+                tag_text = "SAFE PATTERN"
+            elif step['tag'] == 'gap':
+                icon = "🔴"
+                tag_text = "SEVERITY GAP"
+            elif step['tag'] == 'drift':
+                icon = "🟡"
+                tag_text = "DRIFT"
+            else:
+                icon = "⚪"
+                tag_text = "NEUTRAL"
+            
+            with st.expander(f"{icon} Step {i+1}: {tag_text}"):
+                st.write(f"**Text:** {step['full_text']}")
+                st.write(f"**Sim:** {step['sim']:.4f} | **Drift:** {step['drift']:.4f} | **Expected:** {step['expected']:.4f} | **CTL:** {step['ctl']:.4f}")
+                if step['pattern']:
+                    st.success(f"✓ Safe pattern detected: {step['pattern']}")
+                if step['severity_mismatch']:
+                    st.error("⚠️ Severity mismatch: mild premise → severe conclusion")
+        
+        # Causal Chain
+        st.subheader("🧩 Causal Chain")
+        chain_html = ""
+        for i, s in enumerate(result['sentences']):
+            short = s[:35] + "..." if len(s) > 35 else s
+            if i > 0 and result['steps'][i-1]['tag'] == 'safe':
+                chain_html += f"<span style='color:#00e676; border:1px solid #00e676; padding:4px 12px; border-radius:20px; margin:0 4px; font-family:monospace;'>{short}</span>"
+            elif i > 0 and result['steps'][i-1]['tag'] == 'gap':
+                chain_html += f"<span style='color:#ff3d57; border:1px solid #ff3d57; padding:4px 12px; border-radius:20px; margin:0 4px; font-family:monospace;'>{short}</span>"
+            else:
+                chain_html += f"<span style='border:1px solid rgba(255,255,255,0.2); padding:4px 12px; border-radius:20px; margin:0 4px; font-family:monospace;'>{short}</span>"
+            if i < len(result['sentences']) - 1:
+                chain_html += "<span style='color:#5c6080; margin:0 4px;'>→</span>"
+        st.markdown(f"<div style='display:flex; flex-wrap:wrap; align-items:center; gap:4px;'>{chain_html}</div>", unsafe_allow_html=True)
+        
+        # AI Insights
+        st.subheader("💡 AI Insights")
+        if result['FINAL'] < 0.45:
+            st.error("⚠️ HIGH RISK — Logical instability detected. Do not rely without verification.")
+            if any(step['severity_mismatch'] for step in result['steps']):
+                st.error("🔴 Severity mismatch: Conclusion severity exceeds premise justification.")
+        elif result['FINAL'] < 0.75:
+            st.warning("⚠️ MODERATE RISK — Cognitive drift detected. Human review recommended.")
         else:
-            # Metrics row
-            c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("H(t) Entropy", result["H"],
-                      help="Informational dispersion [0→1]")
-            c2.metric("D(t) Drift",   result["D"],
-                      help="Hybrid: 0.5×lexical_JSD + 0.5×embedding_dist")
-            c3.metric("SC Coherence", result["SC"],
-                      help="Structural coherence [0→1]")
-            c4.metric("C(t) Base",    result["C_base"],
-                      help="Core stability score")
-            c5.metric("🔥 CTL",       result["CTL"],
-                      help="Royal: max×0.7 + mean×0.3 × domain risk × LGA")
+            st.success("✓ STABLE — Reasoning chain is logically coherent. Safe for assisted use.")
+        
+        # PDF Export
+        pdf_data = create_pdf_report(result, domain, text_input)
+        st.download_button(
+            label="📥 Download PDF Report",
+            data=pdf_data,
+            file_name="cdews_audit_report.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
 
-            st.divider()
+elif run and not text_input:
+    st.warning("الرجاء إدخال نص للتحليل.")
 
-            final = result["Final"]
-            st.subheader(f"🚀 Final Score v5.3 Enhanced 👑: **{final}**")
-
-            if final >= SAFE_THRESHOLD:
-                st.success("✅ Stable Reasoning — Safe for decision support")
-            elif final >= DRIFT_THRESHOLD:
-                st.warning("⚠️ Drift Detected — Human review recommended")
-            else:
-                st.error("🔴 Logical Instability — Do not rely without review")
-
-            st.divider()
-
-            if result["details"]:
-                st.subheader("🔍 Causal Tension — Step by Step")
-                df = pd.DataFrame(result["details"])
-
-                def color_flags(val):
-                    if "💣" in str(val):   return 'background-color: #ff6b6b; color: white'
-                    if "🔴" in str(val):   return 'background-color: #ff4444; color: white'
-                    if "🔥" in str(val):   return 'background-color: #ffa500'
-                    if "⚠️" in str(val):  return 'background-color: #ffd700'
-                    return ''
-
-                st.dataframe(
-                    df.style.applymap(color_flags, subset=['Flag']),
-                    use_container_width=True
-                )
-
-                logic_gaps    = [d for d in result["details"] if "💣" in d.get("Flag","")]
-                contradictions= [d for d in result["details"] if "CONTRADICTION" in d.get("Flag","")]
-                low_lni       = [d for d in result["details"] if d.get("LNI", 1.0) < 0.3]
-
-                col_a, col_b, col_c = st.columns(3)
-                with col_a:
-                    if logic_gaps:
-                        st.error(f"💣 **{len(logic_gaps)} Logic Gap(s) Detected**")
-                        for gap in logic_gaps:
-                            st.caption(f"• Step {gap['Step']}: {gap['Flag']}")
-                    else:
-                        st.success("✅ No logic gaps detected")
-                with col_b:
-                    if contradictions:
-                        st.error(f"🔴 **{len(contradictions)} Contradiction(s)**")
-                    else:
-                        st.success("✅ No contradictions")
-                with col_c:
-                    if low_lni:
-                        st.warning(f"⚠️ **{len(low_lni)} step(s) with low LNI (< 0.30)**")
-                    else:
-                        st.success("✅ Logical necessity maintained")
-
-                csv = df.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="📥 Export Results (CSV)",
-                    data=csv,
-                    file_name="cdews_analysis.csv",
-                    mime="text/csv",
-                )
-            else:
-                st.info("At least 2 sentences required for CTL analysis.")
-
-    with st.expander("📐 Formula Reference & Scientific Justification"):
-        st.markdown("""
-        **Core Stability:**
-        ```
-        C(t) = exp(-(α·H(t) + β·D(t) + γ·(1 - SC)))
-        α = 0.45 | β = 0.35 | γ = 0.20
-        ```
-        **Hybrid D(t) v5.2:**
-        ```
-        D(t) = 0.5 × Lexical_JSD + 0.5 × Embedding_cosine_distance
-        ```
-        **CTL v4.3 backbone:**
-        ```
-        base      = |Expected − Actual_sim|
-        CTL_step  = base × Risk(domain) × LGA_factor
-        ```
-        **👑 Royal CTL Aggregation (v5.3 Enhanced Final):**
-        ```
-        CTL_final = max(tensions) × 0.7 + mean(tensions) × 0.3
-        ```
-        *Rationale: one dangerous jump invalidates the chain.*
-
-        **LGA v2:**
-        | Gap Type | Condition | Amplification |
-        |---|---|---|
-        | Semantic Gap | drift ≥ 0.40 AND expected ≥ 0.80 | ×1.25–1.5 |
-        | Weak Support | sim < 0.65 AND expected ≥ 0.80 | ×1.25–1.5 |
-
-        **LNI (diagnostic):**
-        ```
-        LNI = expected × (1 − drift)
-        ```
-        **Final Score:**
-        ```
-        Final = C(t) × (1 − CTL_final)
-        ```
-        ---
-        **Connector Strength** *(PDTB, Prasad et al. 2008)*
-
-        | Type | Value |
-        |---|---|
-        | Strong (therefore, لذلك, donc...) | 0.85 |
-        | Medium (because, لأن, parce que...) | 0.65 |
-        | Contrast (but, لكن, mais...) | 0.50 |
-        | Neutral | 0.40 |
-
-        ---
-        **Full Version Lineage:**
-
-        | Version | Key Addition |
-        |---|---|
-        | v3.2 | H(t) · D(t) · SC · C(t) |
-        | v4.1 | CTL — Causal Tension Layer |
-        | v4.2 | DRA — Domain Risk Amplification |
-        | v4.3 | Deterministic Core |
-        | v4.4 | Semantic D(t) + domain-aware H(t) |
-        | v5.0 | DCS + LNI architecture |
-        | v5.1 | CTL v4.3 backbone restored |
-        | v5.2 | Hybrid D(t) |
-        | v5.3 | LGA v2 + Enhanced UI |
-        | **v5.3E 👑** | **Royal CTL Aggregation** |
-
-        *Domain Risk: General ×1.0 | Finance ×1.5 | Legal ×1.6 | AI Safety ×1.7 | Medical ×1.8*
-        """)
