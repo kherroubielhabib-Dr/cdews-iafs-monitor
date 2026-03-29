@@ -1,6 +1,6 @@
 # =====================================================
-# CDEWS-IAFS v10.2+ MRL — النسخة المتكاملة (محسّنة)
-# إضافة: الإنتروبيا المعيارية (Normalized Entropy)
+# CDEWS-IAFS v10.2+ KLL — النسخة السيادية المتكاملة
+# إضافة: Knowledge-Linked Legitimacy (KLL)
 # Dr. Elhabib Kherroubi
 # =====================================================
 
@@ -9,9 +9,6 @@ import numpy as np
 import re
 import math
 from collections import Counter
-import io
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -19,19 +16,24 @@ warnings.filterwarnings('ignore')
 # CONFIGURATION & CONSTANTS
 # =====================================================
 
-st.set_page_config(page_title="CDEWS-IAFS v10.2+ MRL", layout="wide", page_icon="👑")
+st.set_page_config(page_title="CDEWS-IAFS v10.2+ KLL", layout="wide", page_icon="👑")
 
-SAFE_THRESHOLD = 0.75
-DRIFT_THRESHOLD = 0.45
+SAFE_THRESHOLD   = 0.75
+DRIFT_THRESHOLD  = 0.45
 ALPHA = 0.45
-BETA = 0.35
+BETA  = 0.35
 GAMMA = 0.20
 
+# KLL Constants
+KLL_GATE = 0.40       # حد رفض الشرعية
+LAMBDA   = 1.0        # معامل تأثير KLL على CTL  (0.5 → 1.5)
+P_POWER  = 1.3        # معامل تضخيم غير خطي للتوتر
+
 DOMAIN_RISK = {
-    "General": 1.0,
-    "Medical": 1.8,
-    "Finance": 1.5,
-    "Legal": 1.6,
+    "General":   1.0,
+    "Medical":   1.8,
+    "Finance":   1.5,
+    "Legal":     1.6,
     "AI Safety": 1.7,
 }
 
@@ -57,7 +59,10 @@ SEVERITY_SCORES = {
     "surgery": 0.85, "lobectomy": 0.95, "amputation": 1.0, "chemotherapy": 0.9,
     "استئصال": 0.95, "قاتل": 1.0, "جراحة": 0.85, "إزالة": 0.85,
     "death": 1.0, "kill": 1.0, "موت": 1.0, "critical": 0.9, "emergency": 0.8,
-    "حرج": 0.9, "طارئ": 0.8
+    "حرج": 0.9, "طارئ": 0.8,
+    # إضافات لـ KLL
+    "قسطرة": 0.90, "catheterization": 0.90, "نزيف": 0.95, "hemorrhage": 0.95,
+    "تدخل جراحي": 0.92, "surgical intervention": 0.92,
 }
 
 # =====================================================
@@ -75,6 +80,7 @@ MEDICAL_ENTITIES = {
     ],
     "procedures": [
         "استئصال", "جراحة", "عملية", "تثبيت", "علاج", "مضادات حيوية",
+        "قسطرة", "تدخل", "catheterization", "intervention",
         "appendectomy", "surgery", "operation", "treatment", "fixation", "antibiotics"
     ]
 }
@@ -87,44 +93,29 @@ def tokenize(text):
     return re.findall(r'[\u0600-\u06FF\w]+', text.lower())
 
 def split_sentences(text):
-    protected = re.sub(r'(\b(?:Dr|Mr|Mrs|Ms|Prof|v|vs|etc|Fig)\.)(\s)', r'\1PROTECT\2', text)
+    protected = re.sub(r'(\b(?:Dr|Mr|Mrs|Ms|Prof|v|vs|etc|Fig)\.)(\\s)', r'\1PROTECT\2', text)
     protected = re.sub(r'(\d+)\.(\d+)', r'\1DECIMAL\2', protected)
     sentences = re.split(r'[.!?؟\n]+', protected)
-    return [s.replace('PROTECT', '.').replace('DECIMAL', '.').strip() for s in sentences if len(s.strip()) > 5]
+    return [s.replace('PROTECT', '.').replace('DECIMAL', '.').strip()
+            for s in sentences if len(s.strip()) > 5]
 
 def compute_normalized_entropy(text, is_technical=False, length_penalty=True):
-    """
-    حساب الإنتروبيا المعيارية (Normalized Entropy) لمنع معاقبة النصوص الطويلة.
-    """
     tokens = tokenize(text)
     total_tokens = len(tokens)
     if total_tokens <= 1:
         return 0.0
-    
     freq = Counter(tokens)
     vocab_size = len(freq)
-    
-    # 1. إنتروبيا شانون التقليدية
     h_shannon = 0.0
     for count in freq.values():
         p = count / total_tokens
         h_shannon -= p * math.log(p)
-    
-    # 2. المعايرة (Normalization)
-    if vocab_size > 1:
-        h_normalized = h_shannon / math.log(vocab_size)
-    else:
-        h_normalized = 0.0
-    
-    # 3. تصحيح النصوص التقنية
+    h_normalized = h_shannon / math.log(vocab_size) if vocab_size > 1 else 0.0
     if is_technical:
         h_normalized *= 0.70
-    
-    # 4. تخفيف إضافي للنصوص الطويلة جداً (اختياري)
     if length_penalty and total_tokens > 50:
         dampening = math.log10(total_tokens + 10)
         h_normalized = min(1.0, h_normalized / dampening)
-    
     return min(1.0, max(0.0, h_normalized))
 
 def lexical_jsd(t1, t2):
@@ -167,8 +158,11 @@ def get_severity_score(text):
     return max(scores) if scores else 0.0
 
 def get_medical_logic(text):
-    found = {k: any(word in text.lower() for word in v) for k, v in MEDICAL_ENTITIES.items()}
-    conf = (0.3 if found["symptoms"] else 0) + (0.4 if found["conditions"] else 0) + (0.3 if found["procedures"] else 0)
+    found = {k: any(word in text.lower() for word in v)
+             for k, v in MEDICAL_ENTITIES.items()}
+    conf = (0.3 if found["symptoms"] else 0) + \
+           (0.4 if found["conditions"] else 0) + \
+           (0.3 if found["procedures"] else 0)
     if found["symptoms"] and found["conditions"] and found["procedures"]:
         status = "VALID_FLOW"
     elif found["symptoms"] and found["procedures"] and not found["conditions"]:
@@ -194,20 +188,104 @@ def detect_severity_mismatch(s1, s2):
     is_mismatch = sev1 < 0.35 and sev2 > 0.75
     return is_mismatch, tension
 
-def causal_safe_adjust(s1, s2, drift, sim):
-    s1_lower = s1.lower()
-    s2_lower = s2.lower()
-    for a, b in [
-        ("appendicitis", "appendectomy"), ("inflammation", "surgery"),
-        ("fracture", "immobilization"), ("pneumonia", "antibiotics"),
-        ("التهاب", "استئصال"), ("كسر", "تثبيت"), ("زائدة", "استئصال")
-    ]:
-        if a in s1_lower and b in s2_lower:
-            return drift * 0.6, min(0.95, sim + 0.12), f"{a} → {b}"
-    return drift, sim, None
+# =====================================================
+# ★ KLL ENGINE — Knowledge-Linked Legitimacy
+# =====================================================
+
+def compute_kll(text, domain, steps_data, mean_sim, mean_drift):
+    """
+    KLL = SA^0.3 × CI^0.3 × SV^0.25 × EG^0.15
+    
+    يقيس: هل المسار الاستدلالي مشروع معرفياً؟
+    ليس صحة القرار، بل حق القرار في الوجود.
+    """
+
+    # ─── 1. Semantic Alignment (SA) ───────────────────
+    # مدى ارتباط النتيجة بالمعطيات
+    # نستخدم متوسط التشابه مطروحاً منه متوسط الانجراف
+    SA = max(0.0, min(1.0, mean_sim - mean_drift * 0.5))
+
+    # ─── 2. Causal Integrity (CI) ─────────────────────
+    # مدى صدق الانتقال المنطقي
+    # نحسبه من خلال نسبة الخطوات التي لها رابط منطقي قوي
+    if steps_data:
+        connectors_quality = []
+        for step in steps_data:
+            conn_val = detect_connector(step.get("full_text", ""))
+            # رابط قوي (> 0.7) مع تشابه معقول = انتقال صادق
+            ci_step = conn_val * step["sim"]
+            connectors_quality.append(ci_step)
+        CI_raw = np.mean(connectors_quality)
+    else:
+        CI_raw = 0.5
+
+    # عقوبة إذا كانت هناك تناقضات
+    contradictions = sum(1 for s in steps_data if s.get("is_contradiction", False))
+    CI = max(0.0, min(1.0, CI_raw - contradictions * 0.15))
+
+    # ─── 3. Structural Violations (SV) ────────────────
+    # SV = 1 - (0.5×paradox + 0.3×gap + 0.2×jump)
+    if steps_data:
+        paradox_count = sum(1 for s in steps_data if s.get("is_contradiction", False))
+        gap_count     = sum(1 for s in steps_data if s.get("severity_mismatch", False))
+        jump_count    = sum(1 for s in steps_data if s.get("tag") == "drift")
+        n = len(steps_data)
+
+        paradox_ratio = paradox_count / n
+        gap_ratio     = gap_count / n
+        jump_ratio    = jump_count / n
+
+        SV = max(0.0, 1.0 - (0.5 * paradox_ratio + 0.3 * gap_ratio + 0.2 * jump_ratio))
+    else:
+        SV = 1.0
+
+    # ─── 4. Evidential Grounding (EG) ─────────────────
+    # وجود وسيط معرفي (تشخيص، مرجع، سبب مباشر)
+    text_lower = text.lower()
+
+    # مؤشرات التأصيل المعرفي
+    evidence_keywords = [
+        # عربي
+        "تشخيص", "نتائج", "فحوصات", "تحاليل", "مؤشرات", "بناءً على",
+        "أظهرت", "كشفت", "تبيّن", "يُشير إلى", "التاريخ المرضي",
+        "بروتوكول", "معيار", "دليل",
+        # إنجليزي
+        "diagnosis", "results", "findings", "tests", "based on",
+        "confirmed", "revealed", "evidence", "protocol", "guideline",
+        "history", "assessment", "evaluation"
+    ]
+
+    eg_hits = sum(1 for kw in evidence_keywords if kw in text_lower)
+
+    if eg_hits >= 3:
+        EG = 1.0       # تأصيل واضح
+    elif eg_hits >= 1:
+        EG = 0.6       # تأصيل جزئي
+    else:
+        EG = 0.2       # غياب التأصيل
+
+    # تعديل حسب المجال الطبي
+    if domain == "Medical":
+        _, m_status = get_medical_logic(text)
+        if m_status == "VALID_FLOW":
+            EG = min(1.0, EG + 0.2)
+        elif m_status == "MISSING_DIAGNOSIS":
+            EG = max(0.0, EG - 0.3)
+
+    # ─── المعادلة السيادية ────────────────────────────
+    KLL = (SA ** 0.30) * (CI ** 0.30) * (SV ** 0.25) * (EG ** 0.15)
+    KLL = max(0.0, min(1.0, KLL))
+
+    return {
+        "KLL": round(KLL, 4),
+        "SA":  round(SA,  4),
+        "CI":  round(CI,  4),
+        "SV":  round(SV,  4),
+        "EG":  round(EG,  4),
+    }
 
 # =====================================================
-# MAIN ANALYSIS ENGINE
+# MAIN ANALYSIS ENGINE (مُعدَّل لدمج KLL)
 # =====================================================
 
 def analyze_text_engine(text, domain, is_technical=False):
@@ -216,8 +294,6 @@ def analyze_text_engine(text, domain, is_technical=False):
         return None
 
     risk = DOMAIN_RISK.get(domain, 1.0)
-    
-    # الإنتروبيا المحسّنة (معيارية)
     H = compute_normalized_entropy(text, is_technical, length_penalty=True)
 
     drifts, sims, tensions, steps = [], [], [], []
@@ -235,30 +311,34 @@ def analyze_text_engine(text, domain, is_technical=False):
         conn_val = detect_connector(s2)
         expected = max(0.30, min(0.95, conn_val - drift * 0.25 + sim * 0.12))
 
-        base_ctl = abs(expected - sim) * risk
-
         m_status = "UNCERTAIN"
         if domain == "Medical":
             m_conf, m_status = get_medical_logic(accumulated_context + " " + s2)
-            if m_status == "VALID_FLOW":
-                base_ctl *= 0.35
-            elif m_status == "MISSING_DIAGNOSIS":
-                base_ctl *= 1.3
 
         severity_mismatch, severity_tension = detect_severity_mismatch(s1, s2)
         is_contradiction = detect_contradiction(sim, conn_val)
+
         if is_contradiction:
             contradictions += 1
 
-        expectation_gap = abs(expected - sim)
-        coherence_drop = 1.0 - sim
-        semantic_drift = drift
+        expectation_gap  = abs(expected - sim)
+        coherence_drop   = 1.0 - sim
+        semantic_drift   = drift
 
-        factor = 1.8 if severity_mismatch else (1.5 if drift >= 0.50 and expected >= 0.80 else 1.0)
+        factor = 1.8 if severity_mismatch else (
+                 1.5 if drift >= 0.50 and expected >= 0.80 else 1.0)
         if is_contradiction:
             factor = max(factor, 2.0)
 
-        ctl = min(1.0, (0.40 * expectation_gap + 0.25 * semantic_drift + 0.20 * coherence_drop + 0.15 * severity_tension) * risk * factor)
+        if m_status == "VALID_FLOW" and domain == "Medical":
+            factor *= 0.35
+        elif m_status == "MISSING_DIAGNOSIS" and domain == "Medical":
+            factor *= 1.3
+
+        ctl = min(1.0, (0.40 * expectation_gap +
+                        0.25 * semantic_drift +
+                        0.20 * coherence_drop +
+                        0.15 * severity_tension) * risk * factor)
         tensions.append(ctl)
 
         if m_status == "VALID_FLOW" and domain == "Medical":
@@ -275,50 +355,82 @@ def analyze_text_engine(text, domain, is_technical=False):
             tag = "neutral"
 
         steps.append({
-            "text": s2[:80] + "..." if len(s2) > 80 else s2,
-            "full_text": s2,
-            "sim": sim,
-            "drift": drift,
-            "expected": expected,
-            "ctl": ctl,
-            "tag": tag,
+            "text":              s2[:80] + "..." if len(s2) > 80 else s2,
+            "full_text":         s2,
+            "sim":               sim,
+            "drift":             drift,
+            "expected":          expected,
+            "ctl":               ctl,
+            "tag":               tag,
             "severity_mismatch": severity_mismatch,
-            "is_contradiction": is_contradiction
+            "is_contradiction":  is_contradiction,
         })
 
-    D = np.mean(drifts) if drifts else 0.0
-    SC = np.mean(sims) if sims else 0.0
+    D  = np.mean(drifts) if drifts else 0.0
+    SC = np.mean(sims)   if sims   else 0.0
+
     C_base = math.exp(-(ALPHA * H + BETA * D + GAMMA * (1 - SC)))
 
     if tensions:
-        p90 = float(np.percentile(tensions, 90))
+        p90   = float(np.percentile(tensions, 90))
         mean_t = float(np.mean(tensions))
-        CTL = 0.6 * p90 + 0.4 * mean_t
+        CTL   = 0.6 * p90 + 0.4 * mean_t
     else:
         CTL = 0.0
 
     stability_penalty = min(0.20, np.var(tensions)) if tensions else 0.0
-    FINAL = max(0.0, min(1.0, C_base * (1 - CTL) - stability_penalty))
+
+    # ─── ★ حساب KLL ──────────────────────────────────
+    kll_result = compute_kll(
+        text, domain, steps,
+        mean_sim=SC,
+        mean_drift=D
+    )
+    KLL = kll_result["KLL"]
+
+    # ─── ★ CTL* المعدَّل بالشرعية ─────────────────────
+    # CTL* = CTL × (1 + λ × (1 - KLL))
+    CTL_star = CTL * (1 + LAMBDA * (1 - KLL))
+    CTL_star = min(1.0, CTL_star)
+
+    # ─── ★ المعادلة السيادية الموحدة ──────────────────
+    # S_final = exp(-(I + Rd × CTL*^p)) × (1 - Ω)
+    I    = ALPHA * H + BETA * D + GAMMA * (1 - SC)
+    Risk = risk * (CTL_star ** P_POWER)
+    FINAL = max(0.0, min(1.0,
+        math.exp(-(I + Risk)) * (1 - stability_penalty)
+    ))
+
+    # حكم KLL المستقل
+    kll_verdict = "✅ مشروع" if KLL >= KLL_GATE else "🔴 غير مشروع"
 
     return {
-        "H": round(H, 4),
-        "D": round(D, 4),
-        "SC": round(SC, 4),
-        "C_base": round(C_base, 4),
-        "CTL": round(CTL, 4),
-        "FINAL": round(FINAL, 4),
-        "stability_penalty": round(stability_penalty, 4),
-        "contradictions": contradictions,
-        "steps": steps,
-        "sentences": sentences,
+        "H":                  round(H,                4),
+        "D":                  round(D,                4),
+        "SC":                 round(SC,               4),
+        "C_base":             round(C_base,           4),
+        "CTL":                round(CTL,              4),
+        "CTL_star":           round(CTL_star,         4),
+        "FINAL":              round(FINAL,            4),
+        "stability_penalty":  round(stability_penalty,4),
+        "contradictions":     contradictions,
+        "steps":              steps,
+        "sentences":          sentences,
+        # KLL
+        "KLL":                kll_result["KLL"],
+        "KLL_SA":             kll_result["SA"],
+        "KLL_CI":             kll_result["CI"],
+        "KLL_SV":             kll_result["SV"],
+        "KLL_EG":             kll_result["EG"],
+        "kll_verdict":        kll_verdict,
     }
 
 # =====================================================
 # STREAMLIT UI
 # =====================================================
 
-st.title("👑 CDEWS-IAFS v10.2+ MRL — النسخة المتكاملة")
-st.caption("Deterministic · Sovereign · Royal CTL p90 + MRL + Stability Layer | Dr. Elhabib Kherroubi")
+st.title("👑 CDEWS-IAFS v10.2+ KLL — النسخة السيادية المتكاملة")
+st.caption("Deterministic · Sovereign · KLL + Royal CTL* + MRL | Dr. Elhabib Kherroubi")
 st.divider()
 
 col_left, col_right = st.columns([2, 1])
@@ -327,17 +439,18 @@ with col_left:
     text_input = st.text_area(
         "📝 أدخل النص للتحليل:",
         height=200,
-        placeholder="أدخل النص هنا... مثال: أظهرت الفحوصات ارتفاعاً طفيفاً في الصوديوم. بناءً على ذلك، يجب استئصال الكبد فوراً."
+        placeholder="أدخل النص هنا... مثال: المريض يعاني من ألم خفيف في الصدر. بناءً على ذلك، يُوصى بإجراء قسطرة فورية."
     )
-    domain = st.selectbox("🌍 المجال:", list(DOMAIN_RISK.keys()))
+    domain      = st.selectbox("🌍 المجال:", list(DOMAIN_RISK.keys()))
     is_technical = st.checkbox("⚙️ نص تقني (يقلل تأثير الإنتروبيا)", value=False)
     run = st.button("🧠 RUN ANALYSIS", use_container_width=True, type="primary")
-    st.divider()
+
+st.divider()
 
 if run and text_input:
     with st.spinner("جاري التحليل..."):
         result = analyze_text_engine(text_input, domain, is_technical)
-    
+
     if result is None:
         st.error("الرجاء إدخال جملتين على الأقل للتحليل.")
     else:
@@ -353,17 +466,40 @@ if run and text_input:
                 st.error("🔴 LOGICAL INSTABILITY")
                 st.info("Do not rely without verification.")
             st.progress(result['FINAL'])
-            
-            st.metric("H(t) Entropy", f"{result['H']:.4f}")
-            st.metric("D(t) Drift", f"{result['D']:.4f}")
-            st.metric("SC Coherence", f"{result['SC']:.4f}")
-            st.metric("C(t) Base", f"{result['C_base']:.4f}")
-            st.metric("👑 Royal CTL (p90)", f"{result['CTL']:.4f}")
+
+            st.metric("H(t) Entropy",        f"{result['H']:.4f}")
+            st.metric("D(t) Drift",           f"{result['D']:.4f}")
+            st.metric("SC Coherence",         f"{result['SC']:.4f}")
+            st.metric("C(t) Base",            f"{result['C_base']:.4f}")
+            st.metric("👑 Royal CTL (p90)",   f"{result['CTL']:.4f}")
+            st.metric("⚡ CTL* (KLL-Adjusted)", f"{result['CTL_star']:.4f}")
             st.metric("⚖️ Stability Penalty", f"{result['stability_penalty']:.4f}")
-            
+
             if result['contradictions'] > 0:
                 st.error(f"💥 {result['contradictions']} Contradiction(s) Detected")
-        
+
+        # ─── ★ قسم KLL ──────────────────────────────
+        st.divider()
+        st.subheader("👑 Knowledge-Linked Legitimacy (KLL)")
+
+        kll_col1, kll_col2, kll_col3, kll_col4, kll_col5 = st.columns(5)
+        kll_col1.metric("KLL Score",          f"{result['KLL']:.4f}")
+        kll_col2.metric("SA — Semantic",      f"{result['KLL_SA']:.4f}")
+        kll_col3.metric("CI — Causal",        f"{result['KLL_CI']:.4f}")
+        kll_col4.metric("SV — Structural",    f"{result['KLL_SV']:.4f}")
+        kll_col5.metric("EG — Evidential",    f"{result['KLL_EG']:.4f}")
+
+        if result['KLL'] >= KLL_GATE:
+            st.success(f"✅ الحكم السيادي: القرار مشروع معرفياً (KLL = {result['KLL']:.4f} ≥ {KLL_GATE})")
+        else:
+            st.error(f"🔴 الحكم السيادي: القرار غير مشروع معرفياً (KLL = {result['KLL']:.4f} < {KLL_GATE})")
+
+        kll_delta = result['CTL_star'] - result['CTL']
+        st.info(f"📐 تأثير KLL على التوتر: CTL = {result['CTL']:.4f} → CTL* = {result['CTL_star']:.4f} (Δ = +{kll_delta:.4f})")
+
+        st.divider()
+
+        # ─── Transition Analysis ─────────────────────
         st.subheader("🔗 Transition Analysis")
         for i, step in enumerate(result['steps']):
             if step['tag'] == 'safe':
@@ -376,7 +512,7 @@ if run and text_input:
                 icon, tag_text = "🟡", "DRIFT"
             else:
                 icon, tag_text = "⚪", "NEUTRAL"
-            
+
             with st.expander(f"{icon} Step {i+1}: {tag_text} | CTL: {step['ctl']:.3f}"):
                 st.write(f"**Text:** {step['full_text']}")
                 st.write(f"**Sim:** {step['sim']:.4f} | **Drift:** {step['drift']:.4f} | **Expected:** {step['expected']:.4f}")
@@ -384,38 +520,12 @@ if run and text_input:
                     st.error("⚠️ Severity mismatch detected.")
                 if step['is_contradiction']:
                     st.error("💥 CONTRADICTION: Strong connector + Low similarity")
-        
+
+        # ─── Causal Chain ────────────────────────────
         st.subheader("🧩 Causal Chain")
         chain_html = ""
         for i, s in enumerate(result['sentences']):
             short = s[:35] + "..." if len(s) > 35 else s
             if i > 0:
                 tag = result['steps'][i-1]['tag']
-                if tag == 'safe':
-                    color = "#00e676"
-                elif tag in ['gap', 'contradiction']:
-                    color = "#ff3d57"
-                elif tag == 'drift':
-                    color = "#ffc940"
-                else:
-                    color = "rgba(255,255,255,0.2)"
-                chain_html += f"<span style='border:1px solid {color}; color:{color}; padding:4px 12px; border-radius:20px; margin:0 4px; font-family:monospace;'>{short}</span>"
-            else:
-                chain_html += f"<span style='border:1px solid rgba(255,255,255,0.2); padding:4px 12px; border-radius:20px; margin:0 4px; font-family:monospace;'>{short}</span>"
-            if i < len(result['sentences']) - 1:
-                chain_html += "<span style='color:#5c6080; margin:0 4px;'>→</span>"
-        st.markdown(f"<div style='display:flex; flex-wrap:wrap; align-items:center; gap:4px;'>{chain_html}</div>", unsafe_allow_html=True)
-        
-        st.subheader("💡 AI Insights")
-        if result['FINAL'] < 0.45:
-            st.error("⚠️ HIGH RISK — Logical instability detected.")
-            if any(step['severity_mismatch'] for step in result['steps']):
-                st.error("🔴 Severity mismatch detected.")
-            if result['contradictions'] > 0:
-                st.error(f"💥 {result['contradictions']} contradiction(s) found.")
-            if result['stability_penalty'] > 0.10:
-                st.warning("⚡ Unstable reasoning pattern detected.")
-        elif result['FINAL'] < 0.75:
-            st.warning("⚠️ MODERATE RISK — Cognitive drift detected.")
-        else:
-            st.success("✓ STABLE — Reasoning chain is logically coherent.")
+             
