@@ -395,7 +395,20 @@ if run:
 """)
 
 else:
+    # Welcome screen
     st.markdown("""
 ### How it works
 
-**With CSLF** (Sovereign Trinity):
+**Without CSLF** (current systems):
+- Decisions are evaluated based on outputs only
+- No structural validation of reasoning paths
+- No stability or legitimacy guarantees
+
+**With CSLF:**
+- Every reasoning step is evaluated probabilistically
+- Stability (K) and Hazard (H) are tracked dynamically
+- Legitimacy (KLL) ensures epistemic grounding
+- Final decision must pass admissibility gate
+
+Click **▶ Run CSLF Evaluation** to begin.
+""")
