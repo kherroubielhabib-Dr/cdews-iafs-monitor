@@ -195,6 +195,7 @@ class CSLFSignal:
 
     def evaluate(self, probs, token):
         K, dV = self.stability.update(probs)
+
         I = K
         dI = max(0.0, I - self.I_prev)
         self.I_prev = I
@@ -352,7 +353,6 @@ if run:
     m4.metric("CTL* --- Tension", f"{final['CTL*']:.4f}")
     m5.metric("S_signal --- KSL", f"{final['S_signal']:.4f}")
 
-    # التصحيح الأساسي — السطر الذي كان به الخطأ
     if cav_status == "PASSED":
         st.success("✅ CAV STATUS: PASSED --- Epistemically Admissible")
         st.info("Ready for Sovereign Resolution → R-AGAM")
@@ -397,4 +397,5 @@ if run:
 else:
     st.markdown("""
 ### How it works
+
 **With CSLF** (Sovereign Trinity):
