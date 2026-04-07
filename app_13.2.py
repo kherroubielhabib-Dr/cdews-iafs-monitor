@@ -1,7 +1,6 @@
 import streamlit as st
 import math
 import json
-import openai
 
 # ==============================
 # CONFIG
