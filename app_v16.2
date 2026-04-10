@@ -1,0 +1,641 @@
+import streamlit as st
+from dataclasses import dataclass
+from typing import Dict, Any, Optional, Tuple
+import hashlib
+import time
+import json
+import math
+
+# ═══════════════════════════════════════════════════════════════
+# 🧬 CSLF v16.2 — Sovereign Epistemic Engine
+# Architect: Dr. Elhabib Kherroubi
+# Engineering: Mohamed Rihan
+# ═══════════════════════════════════════════════════════════════
+
+st.set_page_config(
+    page_title="CSLF v16.2 — Sovereign Gate",
+    layout="wide",
+    page_icon="🏛️",
+    initial_sidebar_state="collapsed"
+)
+
+# ── GLOBAL CSS ──────────────────────────────────────────────────
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500;600&family=Noto+Sans+Arabic:wght@300;400;500;600;700&display=swap');
+
+:root {
+    --navy:     #0A0F1E;
+    --deep:     #0D1526;
+    --surface:  #111827;
+    --panel:    #141E30;
+    --border:   #1E2D45;
+    --border2:  #243650;
+    --gold:     #C9A84C;
+    --gold2:    #E8C96A;
+    --blue:     #2D6BE4;
+    --blue2:    #4A8BF5;
+    --cyan:     #00D4FF;
+    --green:    #00E5A0;
+    --red:      #FF4C6A;
+    --orange:   #FF8C42;
+    --text:     #E8EDF5;
+    --muted:    #6B7FA3;
+    --muted2:   #4A5A7A;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, .stApp {
+    background: var(--navy) !important;
+    color: var(--text) !important;
+    font-family: 'Syne', sans-serif !important;
+}
+
+.stApp { min-height: 100vh; }
+
+/* HIDE STREAMLIT CHROME */
+#MainMenu, footer, header, .stDeployButton { display: none !important; }
+.block-container { padding: 0 !important; max-width: 100% !important; }
+section[data-testid="stSidebar"] { display: none; }
+
+/* SCROLLBAR */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--navy); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* HEADER */
+.cslf-header {
+    background: linear-gradient(135deg, #0D1526 0%, #0A0F1E 50%, #060C17 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 32px 48px 28px;
+    position: relative;
+    overflow: hidden;
+}
+.cslf-header::before {
+    content: '';
+    position: absolute;
+    top: -80px; right: -80px;
+    width: 320px; height: 320px;
+    background: radial-gradient(circle, rgba(201,168,76,0.06) 0%, transparent 70%);
+    border-radius: 50%;
+}
+.cslf-header::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--gold), var(--blue), transparent);
+}
+.header-eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 4px;
+    color: var(--gold);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    opacity: 0.8;
+}
+.header-title {
+    font-size: 38px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    color: var(--text);
+    line-height: 1;
+}
+.header-title span { color: var(--gold); }
+.header-sub {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 6px;
+    font-weight: 400;
+    letter-spacing: 0.5px;
+}
+.header-badges {
+    display: flex;
+    gap: 8px;
+    margin-top: 14px;
+    flex-wrap: wrap;
+}
+.badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 2px;
+    padding: 4px 10px;
+    border-radius: 2px;
+    text-transform: uppercase;
+    font-weight: 500;
+}
+.badge-gold { background: rgba(201,168,76,0.12); color: var(--gold); border: 1px solid rgba(201,168,76,0.25); }
+.badge-blue { background: rgba(45,107,228,0.12); color: var(--blue2); border: 1px solid rgba(45,107,228,0.25); }
+.badge-green { background: rgba(0,229,160,0.08); color: var(--green); border: 1px solid rgba(0,229,160,0.2); }
+
+/* MAIN GRID */
+.main-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    min-height: calc(100vh - 120px);
+}
+.left-panel {
+    padding: 36px 40px;
+    border-right: 1px solid var(--border);
+    background: var(--deep);
+}
+.right-panel {
+    padding: 36px 40px;
+    background: var(--navy);
+}
+
+/* SECTION LABELS */
+.section-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 3px;
+    color: var(--gold);
+    text-transform: uppercase;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--border2), transparent);
+}
+
+/* FIELD GROUPS */
+.field-group { margin-bottom: 22px; }
+.field-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.field-num {
+    width: 18px; height: 18px;
+    background: var(--border);
+    border: 1px solid var(--border2);
+    border-radius: 2px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--gold);
+}
+
+/* STREAMLIT INPUT OVERRIDES */
+.stTextArea textarea {
+    background: var(--surface) !important;
+    border: 1px solid var(--border2) !important;
+    border-radius: 4px !important;
+    color: var(--text) !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 12px !important;
+    line-height: 1.6 !important;
+    padding: 12px 14px !important;
+    transition: border-color 0.2s !important;
+    resize: vertical !important;
+}
+.stTextArea textarea:focus {
+    border-color: var(--gold) !important;
+    box-shadow: 0 0 0 1px rgba(201,168,76,0.2) !important;
+    outline: none !important;
+}
+.stTextArea textarea::placeholder { color: var(--muted2) !important; }
+.stTextArea label { display: none !important; }
+
+.stSlider { padding: 0 !important; }
+.stSlider [data-baseweb="slider"] { margin-top: 4px !important; }
+.stSlider .rc-slider-rail { background: var(--border) !important; height: 2px !important; }
+.stSlider .rc-slider-track { background: var(--gold) !important; height: 2px !important; }
+.stSlider .rc-slider-handle {
+    background: var(--gold) !important;
+    border: 2px solid var(--navy) !important;
+    width: 14px !important; height: 14px !important;
+    margin-top: -6px !important;
+    box-shadow: 0 0 8px rgba(201,168,76,0.4) !important;
+}
+.stSlider label { color: var(--muted) !important; font-size: 11px !important; font-family: 'JetBrains Mono', monospace !important; letter-spacing: 1px !important; }
+
+/* BUTTON */
+.stButton button {
+    background: linear-gradient(135deg, var(--gold) 0%, #A8873A 100%) !important;
+    color: var(--navy) !important;
+    border: none !important;
+    border-radius: 3px !important;
+    font-family: 'Syne', sans-serif !important;
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    letter-spacing: 2px !important;
+    text-transform: uppercase !important;
+    padding: 14px 32px !important;
+    width: 100% !important;
+    cursor: pointer !important;
+    transition: all 0.2s !important;
+    margin-top: 8px !important;
+}
+.stButton button:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 8px 24px rgba(201,168,76,0.3) !important;
+}
+
+/* CONFIG PANEL */
+.config-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 16px 18px;
+    margin-bottom: 20px;
+}
+.config-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+}
+
+/* RESULT CARD */
+.result-allow {
+    background: linear-gradient(135deg, rgba(0,229,160,0.06) 0%, rgba(0,229,160,0.02) 100%);
+    border: 1px solid rgba(0,229,160,0.25);
+    border-radius: 4px;
+    padding: 24px 28px;
+    text-align: center;
+    margin-bottom: 24px;
+    position: relative;
+    overflow: hidden;
+}
+.result-allow::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--green), transparent);
+}
+.result-deny {
+    background: linear-gradient(135deg, rgba(255,76,106,0.06) 0%, rgba(255,76,106,0.02) 100%);
+    border: 1px solid rgba(255,76,106,0.25);
+    border-radius: 4px;
+    padding: 24px 28px;
+    text-align: center;
+    margin-bottom: 24px;
+    position: relative;
+    overflow: hidden;
+}
+.result-deny::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--red), transparent);
+}
+.result-icon { font-size: 36px; margin-bottom: 8px; }
+.result-verdict {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+}
+.result-allow .result-verdict { color: var(--green); }
+.result-deny .result-verdict { color: var(--red); }
+.result-status {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--muted);
+}
+
+/* VECTORS */
+.vector-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+.vector-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 14px 16px;
+}
+.vector-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+}
+.vector-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.vector-key {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+}
+.vector-val {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--blue2);
+}
+.vector-bar-track {
+    height: 2px;
+    background: var(--border);
+    border-radius: 1px;
+    margin-top: 2px;
+    overflow: hidden;
+}
+.vector-bar-fill {
+    height: 100%;
+    border-radius: 1px;
+    transition: width 0.6s ease;
+}
+
+/* CAV OUTPUT */
+.cav-block {
+    background: #080D18;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+}
+.cav-header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.cav-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--gold);
+    text-transform: uppercase;
+}
+.cav-sealed {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--green);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+.cav-body {
+    padding: 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    line-height: 1.7;
+    color: #8BA3C7;
+    overflow-x: auto;
+}
+.cav-key { color: #6B8FBF; }
+.cav-string { color: #85C1A0; }
+.cav-bool { color: #C9A84C; }
+.cav-num { color: #7BB8E8; }
+
+/* GATE STATUS */
+.gate-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+.gate-item {
+    flex: 1;
+    min-width: 80px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 10px 12px;
+    text-align: center;
+}
+.gate-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    letter-spacing: 1.5px;
+    color: var(--muted2);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+}
+.gate-val {
+    font-size: 13px;
+    font-weight: 700;
+}
+.gate-pass { color: var(--green); }
+.gate-fail { color: var(--red); }
+.gate-neutral { color: var(--muted); }
+
+/* PRINCIPLE BOX */
+.principle-box {
+    background: rgba(201,168,76,0.04);
+    border: 1px solid rgba(201,168,76,0.15);
+    border-left: 3px solid var(--gold);
+    border-radius: 0 3px 3px 0;
+    padding: 14px 18px;
+    margin-top: 20px;
+}
+.principle-text {
+    font-size: 12px;
+    color: rgba(232,205,106,0.7);
+    line-height: 1.6;
+    font-style: italic;
+}
+
+/* WARNING / INFO */
+.stWarning, .stInfo, .stError, .stSuccess { border-radius: 3px !important; }
+
+/* ARABIC SUPPORT */
+.arabic { font-family: 'Noto Sans Arabic', sans-serif; direction: rtl; }
+
+/* FOOTER */
+.cslf-footer {
+    border-top: 1px solid var(--border);
+    padding: 16px 48px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--deep);
+}
+.footer-left {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--muted2);
+    letter-spacing: 1px;
+}
+.footer-right {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--muted2);
+    letter-spacing: 1px;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+
+# ═══════════════════════════════════════════════════════════════
+# 🧬 EPISTEMIC VECTOR MODEL
+# ═══════════════════════════════════════════════════════════════
+
+@dataclass(frozen=True)
+class EpistemicVector:
+    evidence:     float
+    risk:         float
+    uncertainty:  float
+    intervention: float
+
+
+# ═══════════════════════════════════════════════════════════════
+# 🧠 SOVEREIGN SEMANTIC ENCODER v16.2
+# ═══════════════════════════════════════════════════════════════
+
+class SemanticEncoder:
+    evidence_keywords = [
+        "no evidence", "normal", "stable", "no signs", "history", "verified",
+        "benign", "negative", "clear", "within range", "unremarkable",
+        "تاريخية", "ثابتة", "مستقرة", "طبيعي", "سجل", "بيانات", "مؤكد", "سليم", "طبيعية"
+    ]
+    risk_keywords = [
+        "infection", "fever", "severe", "critical", "risk", "prediction",
+        "violation", "elevated", "abnormal", "positive", "threat", "danger",
+        "خطر", "تنبؤ", "انحراف", "حرجة", "إصابة", "مخالفة", "تجاوز", "تهديد", "ارتفاع"
+    ]
+    uncertainty_keywords = [
+        "possible", "likely", "maybe", "unclear", "suspected", "potential",
+        "could be", "cannot rule out", "might", "uncertain",
+        "احتمال", "غير مؤكد", "محتمل", "قد يكون", "شك", "غموض", "غير محدد"
+    ]
+    intervention_keywords = [
+        "treat", "start", "action", "block", "ban", "execute", "intervention",
+        "administer", "prescribe", "initiate", "begin", "apply", "enforce",
+        "حظر", "منع", "قرار", "استباقي", "تنفيذ", "إجراء", "توقيف", "علاج", "إعطاء"
+    ]
+
+    @staticmethod
+    def encode(text: str) -> EpistemicVector:
+        if not text or not text.strip():
+            return EpistemicVector(0, 0, 0, 0)
+        t = text.lower()
+        e = sum(1 for k in SemanticEncoder.evidence_keywords if k in t)
+        r = sum(1 for k in SemanticEncoder.risk_keywords if k in t)
+        u = sum(1 for k in SemanticEncoder.uncertainty_keywords if k in t)
+        i = sum(1 for k in SemanticEncoder.intervention_keywords if k in t)
+        norm = max(e + r + u + i, 1)
+        return EpistemicVector(e/norm, r/norm, u/norm, i/norm)
+
+
+# ═══════════════════════════════════════════════════════════════
+# 🏛️ CSLF v16.2 — SOVEREIGN EPISTEMIC ENGINE
+# Core Upgrade: Ontological Relation Gate
+# ═══════════════════════════════════════════════════════════════
+
+class CSLF_v16_2:
+
+    def __init__(self, tau: float = 0.25):
+        self.tau = tau
+
+    # ── LAYER 0: Structural Validation ──────────────────────────
+    def _structural_check(self, decision: Dict) -> Optional[str]:
+        if not all(v and v.strip() for v in decision.values()):
+            return "STRUCTURE_INVALID"
+        return None
+
+    # ── LAYER 1: Semantic Void Detection ────────────────────────
+    def _semantic_void_check(self, vp, vi, vc) -> bool:
+        combined_e = max(vp.evidence, vi.evidence)
+        combined_r = max(vp.risk, vi.risk)
+        combined_u = max(vp.uncertainty, vi.uncertainty)
+        return (combined_e == 0 and combined_r == 0 and
+                combined_u == 0 and vc.intervention == 0)
+
+    # ── LAYER 2: ONTOLOGICAL RELATION GATE (v16.2 Core) ─────────
+    # The intervention is not an independent variable.
+    # It is an epistemic extension of risk.
+    # Any intervention that cannot be derived from actual risk
+    # is an ontological violation — denied before any calculation.
+    def _ontological_relation_gate(self, vp, vi, vc) -> Tuple[bool, str]:
+        combined_risk     = max(vp.risk, vi.risk)
+        combined_evidence = max(vp.evidence, vi.evidence)
+        combined_uncertainty = max(vp.uncertainty, vi.uncertainty)
+
+        # The derivability ceiling: maximum permissible intervention
+        # derived from the epistemic state — not a threshold, but a law.
+        derivability_ceiling = (
+            combined_risk
+            + (0.5 * combined_uncertainty)
+            - (combined_evidence * 0.6)
+        )
+
+        # Ontological violation: intervention exceeds what risk justifies
+        if vc.intervention > derivability_ceiling + self.tau:
+            return False, "ONTOLOGICAL_VIOLATION"
+
+        # Epistemic contradiction: strong evidence of NO risk + strong intervention
+        # A path whose epistemic relation cannot be derived cannot exist.
+        if combined_evidence > 0.5 and combined_risk < 0.3 and vc.intervention > 0.4:
+            return False, "EPISTEMIC_CONTRADICTION"
+
+        return True, "RELATION_VALID"
+
+    # ── LAYER 3: Coherence Gate (preserved from v16.1) ──────────
+    def _coherence_gate(self, vp, vi, vc) -> bool:
+        combined_risk = max(vp.risk, vi.risk)
+        combined_evidence = max(vp.evidence, vi.evidence)
+        combined_uncertainty = max(vp.uncertainty, vi.uncertainty)
+        a_exp = combined_risk + (0.5 * combined_uncertainty) - combined_evidence
+        coherence_diff = abs(a_exp - vc.intervention)
+        return coherence_diff <= self.tau
+
+    # ── CAV SEALING ──────────────────────────────────────────────
+    def _seal_cav(self, decision, vp, vi, vc,
+                  result, status, context, gate_log) -> Dict[str, Any]:
+        raw = f"{decision['premise']}{decision['inference']}{decision['conclusion']}{json.dumps(context)}"
+        ctx_hash = hashlib.sha256(raw.encode()).hexdigest()
+        sig      = hashlib.sha256(f"{ctx_hash}{result}{status}".encode()).hexdigest()
+
+        return {
+            "version":          "CSLF-v16.2-Sovereign",
+            "decision_id":      hashlib.md5(raw.encode()).hexdigest(),
+            "context_hash":     ctx_hash,
+            "epistemic_result": result,
+            "status":           status,
+            "gate_log":         gate_log,
+            "vectors": {
+                "premise":    {"E": round(vp.evidence, 4), "R": round(vp.risk, 4), "U": round(vp.uncertainty, 4)},
+                "inference":  {"E": round(vi.evidence, 4), "R": round(vi.risk, 4), "U": round(vi.uncertainty, 4)},
+                "conclusion": {"I": round(vc.intervention, 4)}
+            },
+            "sealed":    True,
+            "signature": sig,
+            "timestamp": round(time.time(), 6),
+        }
+
+    # ── MAIN EVALUATE ────────────────────────────────────────────
+    def evaluate(self, decision: Dict[str, str],
+                 context: Dict = None) -> Dict[str, Any]:
+        gate_log = []
+
+        # LAYER 0
+        struct_err = self._structural_check(decision)
+        if struct_err:
+            gate_log.append({"layer": "STRUCTURAL", "pass": False, "reason": struct_err})
+            return self._seal_cav(decision,
+                EpistemicVector(0,0,0,0), EpistemicVector(0,0,0,0), Epi
